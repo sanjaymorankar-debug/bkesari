@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/**
+ * Design tokens.
+ *
+ * Two brand accents map to the Kesari/Green shop classification so the
+ * distinction is visible at a glance throughout the marketplace.
+ */
+@theme {
+  --color-cream-50: #fffdf7;
+  --color-cream-100: #fef9ec;
+  --color-cream-200: #fbf0d5;
+
+  --color-kesari-50: #fff7ed;
+  --color-kesari-100: #ffedd5;
+  --color-kesari-300: #fdba74;
+  --color-kesari-500: #f97316;
+  --color-kesari-600: #ea580c;
+  --color-kesari-700: #c2410c;
+
+  --color-leaf-50: #f0fdf4;
+  --color-leaf-100: #dcfce7;
+  --color-leaf-300: #86efac;
+  --color-leaf-500: #22c55e;
+  --color-leaf-600: #16a34a;
+  --color-leaf-700: #15803d;
+
+  --color-ink-400: #94a3b8;
+  --color-ink-500: #64748b;
+  --color-ink-600: #475569;
+  --color-ink-700: #334155;
+  --color-ink-900: #0f172a;
+}
+
+:root {
+  --background: var(--color-cream-50);
+  --foreground: var(--color-ink-900);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible keyboard focus everywhere — accessibility (§51). */
+:focus-visible {
+  outline: 2px solid var(--color-kesari-500);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

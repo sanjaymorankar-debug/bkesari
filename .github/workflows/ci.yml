@@ -1,0 +1,59 @@
+name: CI
+
+# Runs the full suite on every push and pull request. The integration tests need
+# a real PostgreSQL, so one is provided as a service container — the guarantees
+# they check (row locking, unique constraints, CHECK constraints) cannot be
+# verified against a mock.
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dairy_bakery_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      AUTH_SECRET: ci-only-secret-not-used-in-production
+      CRON_SECRET: ci-only-cron-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npx eslint src tests --ext .ts,.tsx
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
