@@ -1,0 +1,23 @@
+/** Retry a delivery that failed for insufficient balance (requirement §39). */
+import type { NextRequest } from "next/server";
+import { z } from "zod";
+
+import { assertIsoDate } from "@/lib/dates";
+import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
+import { requireSubscriptionAccess } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
+import { retryFailedDelivery } from "@/server/services/subscriptions";
+
+const schema = z.object({ date: z.string() });
+
+export const POST = route(
+  async (request: NextRequest, context: RouteContext<{ id: string }>) => {
+    const { id } = await context.params;
+    await requireSubscriptionAccess(id, {
+      anyPermission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY,
+    });
+    const body = await parseBody(request, schema);
+    const outcome = await retryFailedDelivery(id, assertIsoDate(body.date));
+    return ok({ outcome });
+  },
+);

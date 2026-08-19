@@ -1,0 +1,155 @@
+/**
+ * Notification service (requirement §49).
+ *
+ * In-app notifications are persisted; other channels are dispatched through a
+ * pluggable transport so SMS/push can be added later without touching callers.
+ * Email uses a console transport until SMTP credentials are configured — the
+ * seam exists so wiring a provider is a one-file change.
+ */
+import { and, count, desc, eq, isNull } from "drizzle-orm";
+
+import { db, type DbClient } from "@/server/db";
+import { notifications, type Notification } from "@/server/db/schema";
+
+export const NOTIFICATION_TYPES = {
+  SHOP_APPROVED: "shop.approved",
+  SHOP_REJECTED: "shop.rejected",
+  ORDER_CONFIRMED: "order.confirmed",
+  ORDER_READY: "order.ready",
+  ORDER_OUT_FOR_DELIVERY: "order.out_for_delivery",
+  ORDER_DELIVERED: "order.delivered",
+  ORDER_CANCELLED: "order.cancelled",
+  WALLET_TOPUP_SUCCESS: "wallet.topup_success",
+  WALLET_LOW_BALANCE: "wallet.low_balance",
+  SUBSCRIPTION_CREATED: "subscription.created",
+  SUBSCRIPTION_MODIFIED: "subscription.modified",
+  SUBSCRIPTION_SKIPPED: "subscription.skipped",
+  SUBSCRIPTION_PAUSED: "subscription.paused",
+  SUBSCRIPTION_ORDER_CREATED: "subscription.order_created",
+  SUBSCRIPTION_PAYMENT_FAILED: "subscription.payment_failed",
+  SUBSCRIPTION_UPCOMING_REMINDER: "subscription.upcoming_reminder",
+  PRICE_CHANGED: "product.price_changed",
+} as const;
+
+export type NotificationType =
+  (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];
+
+export interface NotifyInput {
+  userId: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  actionUrl?: string;
+  metadata?: Record<string, unknown>;
+  channels?: ("IN_APP" | "EMAIL" | "SMS" | "PUSH")[];
+  /**
+   * When set, the notification is written at most once for this key. Used for
+   * things like a single low-balance warning per threshold crossing.
+   */
+  dedupeKey?: string;
+}
+
+/**
+ * Writes the notification(s). Never throws — a failed notification must not
+ * roll back the business operation that triggered it.
+ */
+export async function notify(
+  input: NotifyInput,
+  client: DbClient = db,
+): Promise<void> {
+  const channels = input.channels ?? ["IN_APP"];
+  try {
+    for (const channel of channels) {
+      if (channel === "IN_APP") {
+        await client
+          .insert(notifications)
+          .values({
+            userId: input.userId,
+            type: input.type,
+            channel,
+            title: input.title,
+            body: input.body,
+            actionUrl: input.actionUrl ?? null,
+            metadata: input.metadata ?? null,
+            dedupeKey: input.dedupeKey ?? null,
+            sentAt: new Date(),
+          })
+          // Relies on the unique index over dedupe_key.
+          .onConflictDoNothing();
+      } else {
+        await dispatchExternal(channel, input);
+      }
+    }
+  } catch (error) {
+    console.error("[notifications] failed to deliver", input.type, error);
+  }
+}
+
+/**
+ * Outbound transport seam. Swap the body of this function for a real provider
+ * (SES/SendGrid for email, MSG91/Twilio for SMS, FCM for push).
+ */
+async function dispatchExternal(
+  channel: "EMAIL" | "SMS" | "PUSH",
+  input: NotifyInput,
+): Promise<void> {
+  console.info(
+    `[notifications:${channel}] to=${input.userId} type=${input.type} :: ${input.title} — ${input.body}`,
+  );
+}
+
+export async function listNotifications(
+  userId: string,
+  options: { unreadOnly?: boolean; limit?: number } = {},
+): Promise<Notification[]> {
+  return db
+    .select()
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.userId, userId),
+        eq(notifications.channel, "IN_APP"),
+        options.unreadOnly ? isNull(notifications.readAt) : undefined,
+      ),
+    )
+    .orderBy(desc(notifications.createdAt))
+    .limit(Math.min(options.limit ?? 30, 100));
+}
+
+export async function unreadCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.userId, userId),
+        eq(notifications.channel, "IN_APP"),
+        isNull(notifications.readAt),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+export async function markRead(
+  userId: string,
+  notificationId: string,
+): Promise<void> {
+  await db
+    .update(notifications)
+    .set({ readAt: new Date() })
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.userId, userId),
+      ),
+    );
+}
+
+export async function markAllRead(userId: string): Promise<void> {
+  await db
+    .update(notifications)
+    .set({ readAt: new Date() })
+    .where(
+      and(eq(notifications.userId, userId), isNull(notifications.readAt)),
+    );
+}
