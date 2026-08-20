@@ -23,6 +23,21 @@ const NAV = [
   { href: "/wallet", label: "My Wallet" },
 ];
 
+/**
+ * Role-specific navigation (§22).
+ *
+ * This is convenience, not security — every destination re-checks capability
+ * server-side. Hiding a link the user cannot use just keeps the header honest.
+ */
+const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
+  SHOP_OWNER: [
+    { href: "/shop", label: "My Shop" },
+    { href: "/shop/prices", label: "Price Updates" },
+  ],
+  OPERATOR: [{ href: "/admin", label: "Operator Console" }],
+  ADMIN: [{ href: "/admin", label: "Admin Console" }],
+};
+
 /** Header per requirement §6, collapsing to a drawer on mobile (§52). */
 export function SiteHeader({ user, cartCount, balancePaise, unreadCount }: Props) {
   const pathname = usePathname();
@@ -60,6 +75,20 @@ export function SiteHeader({ user, cartCount, balancePaise, unreadCount }: Props
         </form>
 
         <nav className="hidden items-center gap-1 lg:flex">
+          {(user ? (ROLE_NAV[user.role] ?? []) : []).map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={clsx(
+                "rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors",
+                pathname.startsWith(item.href)
+                  ? "bg-kesari-100 text-kesari-800"
+                  : "text-kesari-700 hover:bg-kesari-50",
+              )}
+            >
+              {item.label}
+            </Link>
+          ))}
           {NAV.map((item) => (
             <Link
               key={item.href}

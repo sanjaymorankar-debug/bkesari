@@ -275,12 +275,19 @@ export async function createShopProduct(
  * `product_price_history` inside the same transaction, so the trail can never
  * drift from the current value (§13).
  */
+/**
+ * @param client Pass the surrounding transaction when this runs as part of a
+ *               larger unit of work — the price-approval flow applies an
+ *               approved request and closes its batch atomically, so it must
+ *               not open a second transaction here.
+ */
 export async function updateShopProduct(
   shopProductId: string,
   patch: Partial<Omit<UpsertShopProductInput, "shopId" | "productId">>,
   actor: { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
+  client?: DbClient,
 ): Promise<ShopProduct> {
-  return db.transaction(async (tx) => {
+  const run = async (tx: DbClient) => {
     const [current] = await tx
       .select()
       .from(shopProducts)
@@ -392,7 +399,9 @@ export async function updateShopProduct(
     }
 
     return updated;
-  });
+  };
+
+  return client ? run(client) : db.transaction(run);
 }
 
 /**

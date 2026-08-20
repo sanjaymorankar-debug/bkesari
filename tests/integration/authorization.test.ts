@@ -28,6 +28,63 @@ import {
 
 beforeEach(resetDatabase);
 
+describe("permission matrix — RBAC brief §17", () => {
+  it("gives only the shop owner and admin the price-approval veto (§7)", () => {
+    // The operator proposes; they must never be able to approve their own work.
+    expect(can("OPERATOR", PERMISSIONS.PRICE_REQUEST_SUBMIT)).toBe(true);
+    expect(can("OPERATOR", PERMISSIONS.PRICE_REQUEST_DECIDE_ANY)).toBe(false);
+    expect(can("OPERATOR", PERMISSIONS.PRICE_REQUEST_DECIDE_OWN)).toBe(false);
+    expect(can("OPERATOR", PERMISSIONS.PRICE_REQUEST_OVERRIDE)).toBe(false);
+
+    expect(can("SHOP_OWNER", PERMISSIONS.PRICE_REQUEST_DECIDE_OWN)).toBe(true);
+    expect(can("SHOP_OWNER", PERMISSIONS.PRICE_REQUEST_DECIDE_ANY)).toBe(false);
+    expect(can("SHOP_OWNER", PERMISSIONS.PRICE_REQUEST_OVERRIDE)).toBe(false);
+
+    expect(can("ADMIN", PERMISSIONS.PRICE_REQUEST_DECIDE_ANY)).toBe(true);
+    expect(can("ADMIN", PERMISSIONS.PRICE_REQUEST_OVERRIDE)).toBe(true);
+  });
+
+  it("reserves registration-fee configuration to the admin (§12)", () => {
+    expect(can("SHOP_OWNER", PERMISSIONS.REGISTRATION_FEE_MANAGE)).toBe(false);
+    expect(can("OPERATOR", PERMISSIONS.REGISTRATION_FEE_MANAGE)).toBe(false);
+    expect(can("ADMIN", PERMISSIONS.REGISTRATION_FEE_MANAGE)).toBe(true);
+  });
+
+  it("lets the operator record payments but not the shop owner (§4.2)", () => {
+    expect(can("SHOP_OWNER", PERMISSIONS.PAYMENT_RECORD)).toBe(false);
+    expect(can("SHOP_OWNER", PERMISSIONS.PAYMENT_VIEW_ANY)).toBe(false);
+    expect(can("SHOP_OWNER", PERMISSIONS.PAYMENT_VIEW_OWN)).toBe(true);
+
+    expect(can("OPERATOR", PERMISSIONS.PAYMENT_RECORD)).toBe(true);
+    expect(can("OPERATOR", PERMISSIONS.PAYMENT_VIEW_ANY)).toBe(true);
+    expect(can("ADMIN", PERMISSIONS.PAYMENT_RECORD)).toBe(true);
+  });
+
+  it("reserves referral management to operator and admin (§4.3)", () => {
+    expect(can("SHOP_OWNER", PERMISSIONS.REFERRAL_MANAGE)).toBe(false);
+    expect(can("OPERATOR", PERMISSIONS.REFERRAL_MANAGE)).toBe(true);
+    expect(can("ADMIN", PERMISSIONS.REFERRAL_MANAGE)).toBe(true);
+  });
+
+  it("grades audit visibility: none / limited / full (§17)", () => {
+    expect(can("SHOP_OWNER", PERMISSIONS.AUDIT_LOG_VIEW)).toBe(false);
+    expect(can("SHOP_OWNER", PERMISSIONS.AUDIT_LOG_VIEW_LIMITED)).toBe(false);
+
+    expect(can("OPERATOR", PERMISSIONS.AUDIT_LOG_VIEW)).toBe(false);
+    expect(can("OPERATOR", PERMISSIONS.AUDIT_LOG_VIEW_LIMITED)).toBe(true);
+
+    expect(can("ADMIN", PERMISSIONS.AUDIT_LOG_VIEW)).toBe(true);
+  });
+
+  it("gives the admin every permission the other roles have (§11)", () => {
+    for (const role of ["CUSTOMER", "SHOP_OWNER", "OPERATOR"] as const) {
+      for (const permission of ROLE_PERMISSIONS[role]) {
+        expect(can("ADMIN", permission)).toBe(true);
+      }
+    }
+  });
+});
+
 describe("permission matrix (§4)", () => {
   it("denies a shop owner the ability to change classification (§10)", () => {
     expect(can("SHOP_OWNER", PERMISSIONS.SHOP_SET_CLASSIFICATION)).toBe(false);

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
-import { PERMISSIONS } from "@/server/authz/permissions";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { registerShop, searchShops } from "@/server/services/shops";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +60,22 @@ const registerSchema = z.object({
   deliveryFeePaise: z.number().int().min(0).default(0),
   freeDeliveryAbovePaise: z.number().int().min(0).nullish(),
   description: z.string().max(1000).nullish(),
+
+  /*
+   * Operator-only fields (§4.1). They are accepted by the schema but only
+   * *honoured* when the caller holds SHOP_REGISTRATION_MANAGE — see the
+   * `privileged` flag below. A self-service applicant sending these gets them
+   * silently ignored rather than a 403, so the happy path stays simple while
+   * escalation stays impossible.
+   */
+  ownerId: z.string().uuid().optional(),
+  registrationFeePaise: z.number().int().min(0).optional(),
+  referralCode: z.string().max(32).nullish(),
+  registrationDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use an ISO date (YYYY-MM-DD).")
+    .nullish(),
+
   // NOTE: status and classification are intentionally absent — they are
   // server-assigned and cannot be influenced by the applicant (§8, §10).
 });
@@ -67,5 +83,7 @@ const registerSchema = z.object({
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
   const body = await parseBody(request, registerSchema);
-  return ok(await registerShop(body, user), 201);
+
+  const privileged = can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE);
+  return ok(await registerShop(body, user, { privileged }), 201);
 });

@@ -15,6 +15,20 @@
       "when": 1787162416726,
       "tag": "0001_expand_shop_types",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787198163836,
+      "tag": "0002_broken_red_wolf",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787198900000,
+      "tag": "0003_shop_registration_number",
+      "breakpoints": true
     }
   ]
 }
