@@ -29,6 +29,20 @@
       "when": 1787198900000,
       "tag": "0003_shop_registration_number",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787217232922,
+      "tag": "0004_organic_strong_guy",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787217556721,
+      "tag": "0005_glamorous_eternals",
+      "breakpoints": true
     }
   ]
 }

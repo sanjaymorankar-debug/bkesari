@@ -16,13 +16,14 @@
  * past the parser is integer paise.
  */
 import ExcelJS from "exceljs";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import {
   excelUploadItems,
   excelUploads,
+  productCategories,
   products,
   shopProducts,
   shops,
@@ -32,7 +33,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { appliesImmediately, submitPriceRequests } from "./price-requests";
-import { updateShopProduct } from "./catalogue";
+import { createShopProduct, createProductForShop, findSimilarProducts, updateShopProduct } from "./catalogue";
 
 interface Actor {
   id: string;
@@ -59,6 +60,12 @@ const COLUMN_ALIASES: Record<string, string> = {
   "online price": "onlinePrice",
   "offline price": "offlinePrice",
   category: "category",
+  "sub category": "subCategory",
+  subcategory: "subCategory",
+  "sub-category": "subCategory",
+  description: "description",
+  specifications: "specifications",
+  specification: "specifications",
   stock: "stock",
   active: "active",
 };
@@ -67,6 +74,20 @@ export const TEMPLATE_COLUMNS = [
   "Product ID",
   "Product Name",
   "Category",
+  "Unit",
+  "Price",
+  "Online Price",
+  "Offline Price",
+] as const;
+
+/** GOODS uploads additionally accept these — a new product needs a category. */
+export const GOODS_TEMPLATE_COLUMNS = [
+  "Product ID",
+  "Product Name",
+  "Description",
+  "Specifications",
+  "Category",
+  "Sub Category",
   "Unit",
   "Price",
   "Online Price",
@@ -115,6 +136,11 @@ export interface ParsedRow {
   productName: string;
   unit: string;
   pricePaise: number | null;
+  /** GOODS uploads only. */
+  category: string;
+  subCategory: string;
+  description: string;
+  specifications: string;
   raw: Record<string, unknown>;
 }
 
@@ -122,6 +148,11 @@ export interface PreviewRow extends ParsedRow {
   status: ExcelRowStatus;
   errorMessage: string | null;
   matchedShopProductId: string | null;
+  /** GOODS uploads only: matched a central-catalogue product this shop lacks. */
+  matchedProductId: string | null;
+  /** GOODS uploads only: name looks similar to an existing product (§ "flag for review"). */
+  possibleDuplicateProductId: string | null;
+  possibleDuplicateName: string | null;
   previousPricePaise: number | null;
   differencePaise: number | null;
 }
@@ -138,6 +169,7 @@ export interface UploadPreview {
     invalid: number;
     duplicate: number;
     notFound: number;
+    newProducts: number;
   };
 }
 
@@ -211,6 +243,10 @@ async function parseWorkbook(
       productCode: String(raw.productCode ?? "").trim(),
       productName: String(raw.productName ?? "").trim(),
       unit: String(raw.unit ?? "").trim(),
+      category: String(raw.category ?? "").trim(),
+      subCategory: String(raw.subCategory ?? "").trim(),
+      description: String(raw.description ?? "").trim(),
+      specifications: String(raw.specifications ?? "").trim(),
       pricePaise: parseRupeesToPaise(
         raw.price ?? raw.onlinePrice ?? raw.offlinePrice,
       ),
@@ -271,81 +307,237 @@ export async function validateUpload(
     : [];
 
   const byCode = new Map(catalogue.map((c) => [c.code, c]));
+  const isGoods = input.uploadType === "GOODS";
 
-  const seen = new Set<string>();
-  const rows: PreviewRow[] = parsed.map((row) => {
-    const base = {
-      ...row,
-      matchedShopProductId: null as string | null,
-      previousPricePaise: null as number | null,
-      differencePaise: null as number | null,
-    };
+  // GOODS only: the shop's department, needed to resolve a category name to a
+  // categoryId when a row's product isn't found anywhere yet.
+  const shopDepartment = isGoods
+    ? (
+        await db
+          .select({ shopType: shops.shopType })
+          .from(shops)
+          .where(eq(shops.id, input.shopId))
+          .limit(1)
+      )[0]?.shopType
+    : undefined;
 
-    if (!row.productCode) {
+  const seenCodes = new Set<string>();
+
+  const rows: PreviewRow[] = await Promise.all(
+    parsed.map(async (row): Promise<PreviewRow> => {
+      const base = {
+        ...row,
+        matchedShopProductId: null as string | null,
+        matchedProductId: null as string | null,
+        possibleDuplicateProductId: null as string | null,
+        possibleDuplicateName: null as string | null,
+        previousPricePaise: null as number | null,
+        differencePaise: null as number | null,
+      };
+
+      // A GOODS row for a brand-new product legitimately has no code yet —
+      // only PRICES mode (updating something that must already exist) requires
+      // one. Everything below this still applies to both modes identically.
+      if (!row.productCode && !(isGoods && row.productName)) {
+        return {
+          ...base,
+          status: "MISSING_FIELD",
+          errorMessage: isGoods
+            ? "Both Product ID and Product Name are blank."
+            : "Product ID is blank.",
+        };
+      }
+
+      if (row.productCode) {
+        if (seenCodes.has(row.productCode)) {
+          return {
+            ...base,
+            status: "DUPLICATE",
+            errorMessage: `Product ID ${row.productCode} appears more than once.`,
+          };
+        }
+        seenCodes.add(row.productCode);
+      }
+
+      const match = row.productCode ? byCode.get(row.productCode) : undefined;
+
+      // Found in THIS shop's own catalogue — a price update, exactly as PRICES
+      // mode has always handled it. Identical for both modes.
+      if (match) {
+        if (row.pricePaise == null) {
+          return {
+            ...base,
+            matchedShopProductId: match.shopProductId,
+            previousPricePaise: match.onlinePricePaise,
+            status: "INVALID_PRICE",
+            errorMessage: "Price is missing or not a valid amount.",
+          };
+        }
+        const previous = match.onlinePricePaise;
+        if (previous === row.pricePaise) {
+          return {
+            ...base,
+            matchedShopProductId: match.shopProductId,
+            previousPricePaise: previous,
+            differencePaise: 0,
+            status: "NO_CHANGE",
+            errorMessage: null,
+          };
+        }
+        return {
+          ...base,
+          matchedShopProductId: match.shopProductId,
+          previousPricePaise: previous,
+          differencePaise: previous == null ? null : row.pricePaise - previous,
+          status: "VALID",
+          errorMessage: null,
+        };
+      }
+
+      // PRICES mode stops here — updating a price for a product this shop
+      // doesn't carry is not something a price sheet may do (§21 "unknown
+      // products" stays blocked).
+      if (!isGoods) {
+        return {
+          ...base,
+          status: "NOT_FOUND",
+          errorMessage: `${row.productCode} is not in this shop's catalogue.`,
+        };
+      }
+
+      // GOODS mode: not in this shop yet. Try the CENTRAL catalogue by code —
+      // another shop may already sell this exact product.
+      if (row.productCode) {
+        const [central] = await db
+          .select({ id: products.id, name: products.name })
+          .from(products)
+          .where(
+            and(
+              eq(products.code, row.productCode),
+              eq(products.approvalStatus, "APPROVED"),
+              isNull(products.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (central) {
+          if (row.pricePaise == null) {
+            return {
+              ...base,
+              matchedProductId: central.id,
+              status: "INVALID_PRICE",
+              errorMessage: "Price is missing or not a valid amount.",
+            };
+          }
+          return {
+            ...base,
+            matchedProductId: central.id,
+            status: "VALID",
+            differencePaise: null,
+            errorMessage: null,
+          };
+        }
+      }
+
+      // Nothing matched by code — this is a genuinely new product. It needs a
+      // name and a category that resolves within this shop's department.
+      if (!row.productName) {
+        return {
+          ...base,
+          status: "MISSING_FIELD",
+          errorMessage: `${row.productCode || "(blank Product ID)"} was not found, and Product Name is blank so a new product cannot be created.`,
+        };
+      }
+
+      if (!row.category) {
+        return {
+          ...base,
+          status: "NOT_FOUND",
+          errorMessage: `Category is required to create "${row.productName}".`,
+        };
+      }
+      const [category] = shopDepartment
+        ? await db
+            .select({ id: productCategories.id })
+            .from(productCategories)
+            .where(
+              and(
+                eq(productCategories.department, shopDepartment),
+                ilike(productCategories.name, row.category),
+                isNull(productCategories.deletedAt),
+              ),
+            )
+            .limit(1)
+        : [];
+      if (!category) {
+        return {
+          ...base,
+          status: "NOT_FOUND",
+          errorMessage: `Unknown category "${row.category}" — ask an admin to create it first.`,
+        };
+      }
+
+      if (row.pricePaise == null) {
+        return {
+          ...base,
+          status: "INVALID_PRICE",
+          errorMessage: "Price is missing or not a valid amount.",
+        };
+      }
+
+      const { exact, similar } = await findSimilarProducts(row.productName, category.id);
+      if (exact) {
+        return {
+          ...base,
+          matchedProductId: exact.id,
+          status: "VALID",
+          errorMessage: null,
+        };
+      }
+
       return {
         ...base,
-        status: "MISSING_FIELD" as ExcelRowStatus,
-        errorMessage: "Product ID is blank.",
+        status: "NEW_PRODUCT",
+        possibleDuplicateProductId: similar[0]?.id ?? null,
+        possibleDuplicateName: similar[0]?.name ?? null,
+        errorMessage:
+          similar.length > 0
+            ? `This looks similar to an existing product: ${similar.map((p) => p.name).join(", ")}. It will still be created as new unless you fix the sheet.`
+            : null,
       };
-    }
-    if (seen.has(row.productCode)) {
-      return {
-        ...base,
-        status: "DUPLICATE" as ExcelRowStatus,
-        errorMessage: `Product ID ${row.productCode} appears more than once.`,
-      };
-    }
-    seen.add(row.productCode);
+    }),
+  );
 
-    const match = byCode.get(row.productCode);
-    if (!match) {
-      return {
-        ...base,
-        status: "NOT_FOUND" as ExcelRowStatus,
-        errorMessage: `${row.productCode} is not in this shop's catalogue.`,
-      };
+  // Two NEW_PRODUCT rows for the same name would create it twice — caught here
+  // as a synchronous pass over the resolved array rather than a Set mutated
+  // inside the async map above: every row's callback runs concurrently, so a
+  // shared Set written after an `await` races (two rows can both pass the
+  // "have I seen this name" check before either records it).
+  const seenNewProductNames = new Set<string>();
+  for (const row of rows) {
+    if (row.status !== "NEW_PRODUCT") continue;
+    const nameKey = row.productName.trim().toLowerCase();
+    if (seenNewProductNames.has(nameKey)) {
+      row.status = "DUPLICATE";
+      row.errorMessage = `"${row.productName}" appears more than once.`;
+    } else {
+      seenNewProductNames.add(nameKey);
     }
-    if (row.pricePaise == null) {
-      return {
-        ...base,
-        matchedShopProductId: match.shopProductId,
-        previousPricePaise: match.onlinePricePaise,
-        status: "INVALID_PRICE" as ExcelRowStatus,
-        errorMessage: "Price is missing or not a valid amount.",
-      };
-    }
-
-    const previous = match.onlinePricePaise;
-    if (previous === row.pricePaise) {
-      return {
-        ...base,
-        matchedShopProductId: match.shopProductId,
-        previousPricePaise: previous,
-        differencePaise: 0,
-        status: "NO_CHANGE" as ExcelRowStatus,
-        errorMessage: null,
-      };
-    }
-
-    return {
-      ...base,
-      matchedShopProductId: match.shopProductId,
-      previousPricePaise: previous,
-      differencePaise: previous == null ? null : row.pricePaise - previous,
-      status: "VALID" as ExcelRowStatus,
-      errorMessage: null,
-    };
-  });
+  }
 
   const counts = {
     total: rows.length,
-    valid: rows.filter((r) => r.status === "VALID").length,
+    // NEW_PRODUCT rows are folded into "valid" for the stored summary — like
+    // VALID they will be acted on when applied — but stay distinct on the row
+    // itself so the preview UI can label them "New" rather than "Update".
+    valid: rows.filter((r) => r.status === "VALID" || r.status === "NEW_PRODUCT")
+      .length,
     unchanged: rows.filter((r) => r.status === "NO_CHANGE").length,
     invalid: rows.filter((r) =>
       ["INVALID_PRICE", "MISSING_FIELD"].includes(r.status),
     ).length,
     duplicate: rows.filter((r) => r.status === "DUPLICATE").length,
     notFound: rows.filter((r) => r.status === "NOT_FOUND").length,
+    newProducts: rows.filter((r) => r.status === "NEW_PRODUCT").length,
   };
 
   return db.transaction(async (tx) => {
@@ -380,6 +572,8 @@ export async function validateUpload(
           parsedPricePaise: r.pricePaise,
           previousPricePaise: r.previousPricePaise,
           matchedShopProductId: r.matchedShopProductId,
+          matchedProductId: r.matchedProductId,
+          possibleDuplicateProductId: r.possibleDuplicateProductId,
           status: r.status,
           errorMessage: r.errorMessage,
         })),
@@ -421,6 +615,7 @@ export async function applyUpload(
 ): Promise<{
   applied: number;
   pending: number;
+  created: number;
   wentLive: boolean;
 }> {
   return db.transaction(async (tx) => {
@@ -448,29 +643,45 @@ export async function applyUpload(
       .where(
         and(
           eq(excelUploadItems.uploadId, uploadId),
-          eq(excelUploadItems.status, "VALID"),
+          inArray(excelUploadItems.status, ["VALID", "NEW_PRODUCT"]),
         ),
       );
 
-    const changes = items
-      .filter((i) => i.matchedShopProductId && i.parsedPricePaise != null)
-      .map((i) => ({
-        shopProductId: i.matchedShopProductId as string,
-        priceType: "ONLINE" as const,
-        proposedPricePaise: i.parsedPricePaise as number,
-      }));
+    const priceUpdateItems = items.filter(
+      (i) => i.matchedShopProductId && i.parsedPricePaise != null,
+    );
+    // GOODS mode only: matched the central catalogue but this shop doesn't
+    // carry it yet, or matched nothing and needs to be created outright.
+    const attachItems = items.filter(
+      (i) => !i.matchedShopProductId && i.matchedProductId,
+    );
+    const newProductItems = items.filter(
+      (i) => !i.matchedShopProductId && !i.matchedProductId,
+    );
 
     let applied = 0;
     let pending = 0;
+    let created = 0;
     const wentLive = appliesImmediately(actor, shop.ownerId);
+    const actorForWrites = {
+      id: actor.id,
+      role: actor.role as "SHOP_OWNER" | "OPERATOR" | "ADMIN",
+    };
 
-    if (changes.length > 0) {
+    // 1. Price updates on products the shop already carries — unchanged from
+    //    before this feature: same function, same approval rule.
+    const priceChanges = priceUpdateItems.map((i) => ({
+      shopProductId: i.matchedShopProductId as string,
+      priceType: "ONLINE" as const,
+      proposedPricePaise: i.parsedPricePaise as number,
+    }));
+    if (priceChanges.length > 0) {
       if (wentLive) {
-        for (const change of changes) {
+        for (const change of priceChanges) {
           await updateShopProduct(
             change.shopProductId,
             { onlinePricePaise: change.proposedPricePaise },
-            { id: actor.id, role: actor.role as "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
+            actorForWrites,
             tx,
           );
           applied += 1;
@@ -479,15 +690,104 @@ export async function applyUpload(
         const { requests } = await submitPriceRequests(
           {
             shopId: upload.shopId,
-            changes,
+            changes: priceChanges,
             note: `Excel upload: ${upload.fileName}`,
             excelUploadId: upload.id,
           },
           actor,
           tx,
         );
-        pending = requests.length;
+        pending += requests.length;
       }
+    }
+
+    // 2. Attach a product that exists centrally but not yet in this shop.
+    const attachRequests: { shopProductId: string; priceType: "ONLINE"; proposedPricePaise: number }[] = [];
+    for (const item of attachItems) {
+      const shopProduct = await createShopProduct(
+        {
+          shopId: upload.shopId,
+          productId: item.matchedProductId as string,
+          onlinePricePaise: wentLive ? item.parsedPricePaise : null,
+          onlineSaleEnabled: wentLive && item.parsedPricePaise != null,
+          offlineSaleEnabled: false,
+        },
+        actorForWrites,
+        tx,
+      );
+      created += 1;
+      if (!wentLive && item.parsedPricePaise != null) {
+        attachRequests.push({
+          shopProductId: shopProduct.id,
+          priceType: "ONLINE",
+          proposedPricePaise: item.parsedPricePaise,
+        });
+      }
+    }
+
+    // 3. Genuinely new products (§6 "create a new product and associate it
+    //    with the selected shop").
+    for (const item of newProductItems) {
+      const raw = (item.rawData ?? {}) as Record<string, unknown>;
+      const categoryName = String(raw.category ?? "").trim();
+
+      // Category is re-resolved here (by name, case-insensitive) rather than
+      // carried from validateUpload, so a category renamed between preview and
+      // confirm is caught rather than silently misfiled.
+      const resolvedCategory = categoryName
+        ? await tx.query.productCategories.findFirst({
+            where: and(
+              ilike(productCategories.name, categoryName),
+              isNull(productCategories.deletedAt),
+            ),
+          })
+        : undefined;
+      if (!resolvedCategory) {
+        throw conflict(
+          `Category "${categoryName}" for row ${item.rowNumber} is no longer available. Re-upload the sheet.`,
+        );
+      }
+
+      const result = await createProductForShop(
+        {
+          shopId: upload.shopId,
+          categoryId: resolvedCategory.id,
+          name: item.productName ?? "",
+          description: String(raw.description ?? "").trim() || null,
+          specifications: String(raw.specifications ?? "").trim() || null,
+          subCategory: String(raw.subCategory ?? "").trim() || null,
+          unit: item.unit ?? "unit",
+          onlinePricePaise: item.parsedPricePaise,
+          onlineSaleEnabled: item.parsedPricePaise != null,
+          offlineSaleEnabled: false,
+          confirmDuplicate: true, // already surfaced and accepted at preview time
+        },
+        actor,
+        wentLive,
+        tx,
+      );
+      created += 1;
+      if (!wentLive && item.parsedPricePaise != null) {
+        attachRequests.push({
+          shopProductId: result.shopProduct.id,
+          priceType: "ONLINE",
+          proposedPricePaise: item.parsedPricePaise,
+        });
+      }
+    }
+
+    if (attachRequests.length > 0) {
+      const { requests } = await submitPriceRequests(
+        {
+          shopId: upload.shopId,
+          changes: attachRequests,
+          note: `Excel upload (new products): ${upload.fileName}`,
+          excelUploadId: upload.id,
+        },
+        actor,
+        tx,
+      );
+      pending += requests.length;
     }
 
     await tx
@@ -502,12 +802,12 @@ export async function applyUpload(
         action: AUDIT_ACTIONS.EXCEL_APPLIED,
         entityType: "excel_upload",
         entityId: uploadId,
-        newValue: { applied, pending, wentLive },
+        newValue: { applied, pending, created, wentLive },
       },
       tx,
     );
 
-    return { applied, pending, wentLive };
+    return { applied, pending, created, wentLive };
   });
 }
 
@@ -557,22 +857,32 @@ export async function getUploadPreview(uploadId: string): Promise<UploadPreview>
     uploadId: upload.id,
     shopId: upload.shopId,
     fileName: upload.fileName,
-    rows: items.map((i) => ({
-      rowNumber: i.rowNumber,
-      productCode: i.productCode ?? "",
-      productName: i.productName ?? "",
-      unit: i.unit ?? "",
-      pricePaise: i.parsedPricePaise,
-      raw: i.rawData ?? {},
-      status: i.status,
-      errorMessage: i.errorMessage,
-      matchedShopProductId: i.matchedShopProductId,
-      previousPricePaise: i.previousPricePaise,
-      differencePaise:
-        i.parsedPricePaise != null && i.previousPricePaise != null
-          ? i.parsedPricePaise - i.previousPricePaise
-          : null,
-    })),
+    rows: items.map((i) => {
+      const raw = (i.rawData ?? {}) as Record<string, unknown>;
+      return {
+        rowNumber: i.rowNumber,
+        productCode: i.productCode ?? "",
+        productName: i.productName ?? "",
+        unit: i.unit ?? "",
+        category: String(raw.category ?? ""),
+        subCategory: String(raw.subCategory ?? ""),
+        description: String(raw.description ?? ""),
+        specifications: String(raw.specifications ?? ""),
+        pricePaise: i.parsedPricePaise,
+        raw,
+        status: i.status,
+        errorMessage: i.errorMessage,
+        matchedShopProductId: i.matchedShopProductId,
+        matchedProductId: i.matchedProductId,
+        possibleDuplicateProductId: i.possibleDuplicateProductId,
+        possibleDuplicateName: null,
+        previousPricePaise: i.previousPricePaise,
+        differencePaise:
+          i.parsedPricePaise != null && i.previousPricePaise != null
+            ? i.parsedPricePaise - i.previousPricePaise
+            : null,
+      };
+    }),
     counts: {
       total: upload.totalRows,
       valid: upload.validRows,
@@ -580,6 +890,7 @@ export async function getUploadPreview(uploadId: string): Promise<UploadPreview>
       invalid: upload.invalidRows,
       duplicate: upload.duplicateRows,
       notFound: upload.notFoundRows,
+      newProducts: items.filter((i) => i.status === "NEW_PRODUCT").length,
     },
   };
 }
@@ -603,49 +914,86 @@ export async function listUploadsForShop(
 export async function buildTemplate(
   shopId: string,
   client: DbClient = db,
+  uploadType: "PRICES" | "GOODS" = "PRICES",
 ): Promise<ArrayBuffer> {
   const rows = await client
     .select({
       code: products.code,
       name: products.name,
       unit: products.unit,
+      category: productCategories.name,
       onlinePricePaise: shopProducts.onlinePricePaise,
       offlinePricePaise: shopProducts.offlinePricePaise,
     })
     .from(shopProducts)
     .innerJoin(products, eq(products.id, shopProducts.productId))
+    .innerJoin(productCategories, eq(productCategories.id, products.categoryId))
     .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
 
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Prices");
+  const sheet = workbook.addWorksheet(uploadType === "GOODS" ? "Goods" : "Prices");
 
-  sheet.columns = [
-    { header: "Product ID", key: "code", width: 14 },
-    { header: "Product Name", key: "name", width: 32 },
-    { header: "Unit", key: "unit", width: 10 },
-    { header: "Price", key: "price", width: 12 },
-  ];
-  sheet.getRow(1).font = { bold: true };
-
-  for (const row of rows) {
-    sheet.addRow({
-      code: row.code,
-      name: row.name,
-      unit: row.unit,
-      price: row.onlinePricePaise != null ? row.onlinePricePaise / 100 : "",
-    });
+  if (uploadType === "GOODS") {
+    sheet.columns = [
+      { header: "Product ID", key: "code", width: 14 },
+      { header: "Product Name", key: "name", width: 28 },
+      { header: "Description", key: "description", width: 30 },
+      { header: "Specifications", key: "specifications", width: 30 },
+      { header: "Category", key: "category", width: 18 },
+      { header: "Sub Category", key: "subCategory", width: 16 },
+      { header: "Unit", key: "unit", width: 10 },
+      { header: "Price", key: "price", width: 12 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const row of rows) {
+      sheet.addRow({
+        code: row.code,
+        name: row.name,
+        category: row.category,
+        unit: row.unit,
+        price: row.onlinePricePaise != null ? row.onlinePricePaise / 100 : "",
+      });
+    }
+    // One blank starter row for a genuinely new product — Product ID stays
+    // empty; the sheet is matched by name + category instead.
+    sheet.addRow({ code: "", name: "", category: "", unit: "", price: "" });
+  } else {
+    sheet.columns = [
+      { header: "Product ID", key: "code", width: 14 },
+      { header: "Product Name", key: "name", width: 32 },
+      { header: "Unit", key: "unit", width: 10 },
+      { header: "Price", key: "price", width: 12 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const row of rows) {
+      sheet.addRow({
+        code: row.code,
+        name: row.name,
+        unit: row.unit,
+        price: row.onlinePricePaise != null ? row.onlinePricePaise / 100 : "",
+      });
+    }
   }
 
-  // "Product ID" and "Price" are the only columns the parser requires; the rest
-  // are there to make the sheet readable.
   const notes = workbook.addWorksheet("How to use");
-  notes.addRows([
-    ["Required columns", "Product ID, Price"],
-    ["Optional columns", "Product Name, Unit, Category, Online Price, Offline Price"],
-    ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
-    ["Do not", "change or delete the Product ID column"],
-    ["Note", "Rows with an unknown Product ID or an invalid price are reported and skipped"],
-  ]);
+  if (uploadType === "GOODS") {
+    notes.addRows([
+      ["Required columns", "Product Name, Category, Unit, Price"],
+      ["Product ID", "Leave blank for a new product — it will be assigned automatically"],
+      ["Optional columns", "Description, Specifications, Sub Category"],
+      ["Category", "Must match an existing category name exactly (case-insensitive)"],
+      ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
+      ["Note", "A Product ID that already exists updates that product's price instead of creating a new one"],
+    ]);
+  } else {
+    notes.addRows([
+      ["Required columns", "Product ID, Price"],
+      ["Optional columns", "Product Name, Unit, Category, Online Price, Offline Price"],
+      ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
+      ["Do not", "change or delete the Product ID column"],
+      ["Note", "Rows with an unknown Product ID or an invalid price are reported and skipped"],
+    ]);
+  }
 
   return workbook.xlsx.writeBuffer() as Promise<ArrayBuffer>;
 }

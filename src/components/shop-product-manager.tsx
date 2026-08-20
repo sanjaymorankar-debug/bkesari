@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { AddProductPanel } from "@/components/add-product-panel";
 import {
   Alert,
   AvailabilityBadge,
@@ -46,15 +47,32 @@ interface Suggestion {
  */
 export function ShopProductManager({
   shopId,
+  department,
+  applyPriceImmediately = true,
   products,
   suggestions,
 }: {
   shopId: string;
+  /** The shop's own department/type — scopes category choices and searches. */
+  department: string;
+  /** False when an operator/admin is managing a shop they don't own. */
+  applyPriceImmediately?: boolean;
   products: ManagedProduct[];
   suggestions: Suggestion[];
 }) {
   return (
     <div className="space-y-8">
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-ink-900">Add a product</h2>
+          <AddProductPanel
+            shopId={shopId}
+            department={department}
+            applyPriceImmediately={applyPriceImmediately}
+          />
+        </div>
+      </section>
+
       <section>
         <h2 className="mb-3 text-lg font-semibold text-ink-900">
           My products ({products.length})

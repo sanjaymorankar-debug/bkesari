@@ -1,0 +1,2 @@
+ALTER TABLE "excel_upload_items" ADD COLUMN "matched_product_id" uuid;--> statement-breakpoint
+ALTER TABLE "excel_upload_items" ADD CONSTRAINT "excel_upload_items_matched_product_id_products_id_fk" FOREIGN KEY ("matched_product_id") REFERENCES "public"."products"("id") ON DELETE set null ON UPDATE no action;

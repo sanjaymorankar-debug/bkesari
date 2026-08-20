@@ -58,6 +58,12 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_UPDATED: "referral_code.updated",
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
   PRODUCT_REMOVED: "shop_product.removed",
+
+  /* ---------------------------------------------- product creation & approval */
+  GLOBAL_PRODUCT_CREATED: "product.created",
+  PRODUCT_APPROVED: "product.approved",
+  PRODUCT_REJECTED: "product.rejected",
+  PRODUCT_UPLOAD_NEW: "excel_upload.product_created",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

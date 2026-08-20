@@ -41,6 +41,10 @@ const OPERATOR_VISIBLE_ACTIONS: readonly string[] = [
   AUDIT_ACTIONS.SHOP_PAYMENT_RECORDED,
   AUDIT_ACTIONS.REFERRAL_CODE_CREATED,
   AUDIT_ACTIONS.REFERRAL_CODE_ASSIGNED,
+  // An operator's own product creations, yes; the admin publish/reject
+  // DECISION stays admin-only-visible, same treatment as every other
+  // admin-gated approval in this list.
+  AUDIT_ACTIONS.GLOBAL_PRODUCT_CREATED,
 ];
 
 export interface AuditRow {

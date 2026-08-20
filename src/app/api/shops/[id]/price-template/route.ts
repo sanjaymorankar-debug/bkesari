@@ -12,20 +12,25 @@ import { PERMISSIONS } from "@/server/authz/permissions";
 import { buildTemplate } from "@/server/services/excel";
 
 export const GET = route(
-  async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+  async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
     await requireShopAccess(id, {
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
 
-    const buffer = await buildTemplate(id);
+    const type =
+      new URL(request.url).searchParams.get("type") === "goods"
+        ? "GOODS"
+        : "PRICES";
+    const buffer = await buildTemplate(id, undefined, type);
+    const label = type === "GOODS" ? "product-list" : "price-list";
 
     return new NextResponse(buffer as ArrayBuffer, {
       status: 200,
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="price-list-${id.slice(0, 8)}.xlsx"`,
+        "Content-Disposition": `attachment; filename="${label}-${id.slice(0, 8)}.xlsx"`,
         "Cache-Control": "no-store",
       },
     });

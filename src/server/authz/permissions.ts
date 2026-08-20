@@ -28,6 +28,16 @@ export const PERMISSIONS = {
   PRODUCT_MANAGE: "product:manage",
   SHOP_PRODUCT_MANAGE_OWN: "shop-product:manage:own",
   SHOP_PRODUCT_MANAGE_ANY: "shop-product:manage:any",
+  /** Create a brand-new master product and attach it to the actor's own shop. */
+  PRODUCT_CREATE_OWN: "product:create:own",
+  /** Create a brand-new master product and attach it to any shop. */
+  PRODUCT_CREATE_ANY: "product:create:any",
+  /**
+   * Publish a shop-owner-created product to the central catalogue (or reject
+   * it). Deliberately ADMIN-only, separate from PRODUCT_MANAGE — an operator
+   * may create products but not decide what other shops get to discover.
+   */
+  PRODUCT_APPROVE: "product:approve",
 
   // Orders
   ORDER_PLACE: "order:place",
@@ -113,6 +123,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   ...CUSTOMER_PERMISSIONS,
   PERMISSIONS.SHOP_UPDATE_OWN,
   PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN,
+  PERMISSIONS.PRODUCT_CREATE_OWN,
   PERMISSIONS.ORDER_VIEW_SHOP,
   PERMISSIONS.ORDER_UPDATE_STATUS_SHOP,
   PERMISSIONS.SUBSCRIPTION_VIEW_SHOP,
@@ -123,8 +134,11 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PAYMENT_VIEW_OWN,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
-  // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE — every one of
-  // these is an administrative field the owner may read but never write (§2.5).
+  // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
+  // — every one of these is an administrative field the owner may read but
+  // never write (§2.5). A product the owner creates is usable in their own
+  // shop immediately; PRODUCT_APPROVE only controls whether OTHER shops can
+  // discover it, which is deliberately not the owner's call.
 ];
 
 const OPERATOR_PERMISSIONS: readonly Permission[] = [
@@ -144,6 +158,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.CATEGORY_MANAGE,
   PERMISSIONS.PRODUCT_MANAGE,
   PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
+  PERMISSIONS.PRODUCT_CREATE_ANY,
   PERMISSIONS.ORDER_VIEW_ANY,
   PERMISSIONS.ORDER_UPDATE_STATUS_ANY,
   PERMISSIONS.SUBSCRIPTION_MANAGE_ANY,
@@ -219,6 +234,10 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.PRODUCT_MANAGE]: "Create and edit catalogue products",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN]: "Manage own shop's products",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY]: "Manage any shop's products",
+  [PERMISSIONS.PRODUCT_CREATE_OWN]: "Create a new product for own shop",
+  [PERMISSIONS.PRODUCT_CREATE_ANY]: "Create a new product for any shop",
+  [PERMISSIONS.PRODUCT_APPROVE]:
+    "Publish or reject a shop-created product in the central catalogue",
   [PERMISSIONS.ORDER_PLACE]: "Place an order",
   [PERMISSIONS.ORDER_VIEW_OWN]: "View own orders",
   [PERMISSIONS.ORDER_VIEW_SHOP]: "View orders for own shop",

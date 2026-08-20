@@ -34,8 +34,14 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop", label: "My Shop" },
     { href: "/shop/prices", label: "Price Updates" },
   ],
-  OPERATOR: [{ href: "/admin", label: "Operator Console" }],
-  ADMIN: [{ href: "/admin", label: "Admin Console" }],
+  OPERATOR: [
+    { href: "/admin", label: "Operator Console" },
+    { href: "/admin/shops", label: "Shop Product Management" },
+  ],
+  ADMIN: [
+    { href: "/admin", label: "Admin Console" },
+    { href: "/admin/shops", label: "Shop Product Management" },
+  ],
 };
 
 /** Header per requirement §6, collapsing to a drawer on mobile (§52). */

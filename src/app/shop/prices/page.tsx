@@ -55,8 +55,12 @@ export default async function ShopPricesPage() {
         />
       </Section>
 
+      <Section title="Upload a product list">
+        <ExcelPriceUpload shopId={shop.id} appliesImmediately uploadType="GOODS" />
+      </Section>
+
       <Section title="Upload a price list">
-        <ExcelPriceUpload shopId={shop.id} appliesImmediately />
+        <ExcelPriceUpload shopId={shop.id} appliesImmediately uploadType="PRICES" />
       </Section>
 
       <Section title={`Decision history (${decided.length})`}>

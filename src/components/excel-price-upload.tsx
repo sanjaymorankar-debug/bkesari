@@ -10,6 +10,7 @@ interface PreviewRow {
   productCode: string;
   productName: string;
   unit: string;
+  category?: string;
   pricePaise: number | null;
   previousPricePaise: number | null;
   differencePaise: number | null;
@@ -19,7 +20,8 @@ interface PreviewRow {
     | "INVALID_PRICE"
     | "DUPLICATE"
     | "NOT_FOUND"
-    | "MISSING_FIELD";
+    | "MISSING_FIELD"
+    | "NEW_PRODUCT";
   errorMessage: string | null;
 }
 
@@ -34,6 +36,7 @@ interface Preview {
     invalid: number;
     duplicate: number;
     notFound: number;
+    newProducts: number;
   };
 }
 
@@ -44,6 +47,7 @@ const STATUS_LABEL: Record<PreviewRow["status"], string> = {
   DUPLICATE: "Duplicate",
   NOT_FOUND: "Not found",
   MISSING_FIELD: "Missing field",
+  NEW_PRODUCT: "New",
 };
 
 /**
@@ -57,9 +61,12 @@ export function ExcelPriceUpload({
   shopId,
   /** False for an operator: their upload becomes a proposal, not a live change. */
   appliesImmediately,
+  /** GOODS uploads may create brand-new products; PRICES only ever update existing ones. */
+  uploadType = "PRICES",
 }: {
   shopId: string;
   appliesImmediately: boolean;
+  uploadType?: "PRICES" | "GOODS";
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -77,6 +84,7 @@ export function ExcelPriceUpload({
       const form = new FormData();
       form.append("shopId", shopId);
       form.append("file", file);
+      form.append("uploadType", uploadType);
 
       const response = await fetch("/api/excel-uploads", {
         method: "POST",
@@ -108,10 +116,14 @@ export function ExcelPriceUpload({
       if (!response.ok) {
         throw new Error(payload?.error?.message ?? "That did not work.");
       }
+      const parts: string[] = [];
+      if (payload.applied) parts.push(`${payload.applied} price(s) updated`);
+      if (payload.created) parts.push(`${payload.created} product(s) added`);
+      if (payload.pending) parts.push(`${payload.pending} change(s) sent for approval`);
       setNotice(
-        payload.wentLive
-          ? `${payload.applied} price(s) updated and live.`
-          : `${payload.pending} price change(s) sent to the shop owner for approval.`,
+        parts.length > 0
+          ? `${parts.join(", ")}.${payload.wentLive ? " Now live." : ""}`
+          : "Nothing to apply.",
       );
       setPreview(null);
       if (fileRef.current) fileRef.current.value = "";
@@ -136,10 +148,10 @@ export function ExcelPriceUpload({
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-ink-900">
-          Upload price list (Excel)
+          {uploadType === "GOODS" ? "Upload product list (Excel)" : "Upload price list (Excel)"}
         </h2>
         <a
-          href={`/api/shops/${shopId}/price-template`}
+          href={`/api/shops/${shopId}/price-template${uploadType === "GOODS" ? "?type=goods" : ""}`}
           className="text-sm font-medium text-kesari-600 hover:underline"
         >
           Download template →
@@ -152,9 +164,9 @@ export function ExcelPriceUpload({
       {!preview ? (
         <Card className="p-4">
           <p className="mb-3 text-sm text-ink-600">
-            Download the template, edit the <strong>Price</strong> column in
-            rupees, then upload it here. You will see exactly what changes before
-            anything is saved.
+            {uploadType === "GOODS"
+              ? "Download the template, add or edit rows, then upload it here. Rows with a known Product ID update that product's price; rows without one create a new product. Nothing is saved until you confirm the preview."
+              : "Download the template, edit the Price column in rupees, then upload it here. You will see exactly what changes before anything is saved."}
           </p>
           <input
             ref={fileRef}
@@ -178,7 +190,10 @@ export function ExcelPriceUpload({
               {preview.fileName}
             </span>
             <Badge>{preview.counts.total} rows</Badge>
-            <Badge>{preview.counts.valid} to update</Badge>
+            <Badge>{preview.counts.valid - preview.counts.newProducts} to update</Badge>
+            {preview.counts.newProducts > 0 ? (
+              <Badge>{preview.counts.newProducts} new</Badge>
+            ) : null}
             <Badge>{preview.counts.unchanged} unchanged</Badge>
             {preview.counts.invalid > 0 ? (
               <Badge>{preview.counts.invalid} invalid</Badge>
@@ -260,7 +275,7 @@ export function ExcelPriceUpload({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button disabled={busy || preview.counts.valid === 0} onClick={confirm}>
               {appliesImmediately
-                ? `Apply ${preview.counts.valid} price change(s)`
+                ? `Apply ${preview.counts.valid} change(s)`
                 : `Submit ${preview.counts.valid} change(s) for approval`}
             </Button>
             <Button variant="ghost" disabled={busy} onClick={discard}>

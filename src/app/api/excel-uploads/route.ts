@@ -35,11 +35,14 @@ export const POST = route(async (request: NextRequest) => {
     anyPermission: PERMISSIONS.EXCEL_UPLOAD_ANY,
   });
 
+  const uploadType = form.get("uploadType") === "GOODS" ? "GOODS" : "PRICES";
+
   const preview = await validateUpload(
     {
       shopId,
       fileName: file.name,
       buffer: await file.arrayBuffer(),
+      uploadType,
     },
     user,
   );

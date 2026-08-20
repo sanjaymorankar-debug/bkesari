@@ -7,7 +7,7 @@
  * on add-to-cart, at checkout, and on every subscription order generation.
  * Nothing bypasses it.
  */
-import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import {
   conflict,
@@ -27,8 +27,10 @@ import {
   shops,
   type Department,
   type Product,
+  type ProductApprovalStatus,
   type ProductCategory,
   type ShopProduct,
+  type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
@@ -88,6 +90,13 @@ export async function listProducts(options: {
   department?: Department;
   categoryId?: string;
   subscribableOnly?: boolean;
+  /**
+   * Defaults to APPROVED — the safe choice for every public/search-facing
+   * caller. A product a shop owner creates starts PENDING_APPROVAL and must
+   * stay invisible to every OTHER shop's search until an admin publishes it;
+   * only the admin approval queue passes "PENDING_APPROVAL" explicitly.
+   */
+  approvalStatus?: ProductApprovalStatus;
 }): Promise<(Product & { category: ProductCategory })[]> {
   const rows = await db
     .select({ product: products, category: productCategories })
@@ -100,6 +109,7 @@ export async function listProducts(options: {
       and(
         eq(products.isActive, true),
         isNull(products.deletedAt),
+        eq(products.approvalStatus, options.approvalStatus ?? "APPROVED"),
         options.department
           ? eq(productCategories.department, options.department)
           : undefined,
@@ -115,12 +125,370 @@ export async function listProducts(options: {
 /**
  * Products a shop of the given type is likely to sell (requirement §9).
  * Used to pre-populate the shop owner's catalogue picker; the owner still
- * chooses which of these they actually stock.
+ * chooses which of these they actually stock. APPROVED-only (see listProducts).
  */
 export async function suggestProductsForShopType(
   shopType: Department,
 ): Promise<(Product & { category: ProductCategory })[]> {
   return listProducts({ department: shopType });
+}
+
+/* --------------------------------------- shop-owner / admin product creation */
+
+function normaliseProductName(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/** Classic edit-distance, used only for short product names so O(n·m) is fine. */
+function levenshtein(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const d: number[][] = Array.from({ length: rows }, (_, i) => [
+    i,
+    ...Array(cols - 1).fill(0),
+  ]);
+  for (let j = 1; j < cols; j += 1) d[0][j] = j;
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return d[rows - 1][cols - 1];
+}
+
+/**
+ * "Check whether a similar/existing product already exists" (product
+ * management brief, items 5–6). Two products in the SAME category with
+ * near-identical normalised names are almost certainly the same thing typed
+ * twice — an exact match is reused outright; a close match is surfaced as a
+ * warning rather than silently created or silently blocked.
+ */
+export async function findSimilarProducts(
+  name: string,
+  categoryId: string,
+  client: DbClient = db,
+): Promise<{ exact: Product | null; similar: Product[] }> {
+  const target = normaliseProductName(name);
+  if (!target) return { exact: null, similar: [] };
+
+  const candidates = await client
+    .select()
+    .from(products)
+    .where(
+      and(
+        eq(products.categoryId, categoryId),
+        isNull(products.deletedAt),
+        ne(products.approvalStatus, "REJECTED"),
+      ),
+    );
+
+  let exact: Product | null = null;
+  const similar: Product[] = [];
+
+  for (const candidate of candidates) {
+    const candidateName = normaliseProductName(candidate.name);
+    if (candidateName === target) {
+      exact = candidate;
+      continue;
+    }
+    // Short names tolerate less absolute distance than long ones.
+    const threshold = Math.max(1, Math.floor(Math.min(target.length, candidateName.length) * 0.25));
+    if (
+      levenshtein(target, candidateName) <= threshold ||
+      candidateName.includes(target) ||
+      target.includes(candidateName)
+    ) {
+      similar.push(candidate);
+    }
+  }
+  return { exact, similar };
+}
+
+export interface CreateProductForShopInput {
+  shopId: string;
+  categoryId: string;
+  name: string;
+  description?: string | null;
+  specifications?: string | null;
+  subCategory?: string | null;
+  unit: string;
+  unitSizeMilli?: number;
+  subscribable?: boolean;
+  imageUrl?: string | null;
+  onlinePricePaise?: number | null;
+  offlinePricePaise?: number | null;
+  onlineSaleEnabled?: boolean;
+  offlineSaleEnabled?: boolean;
+  isAvailable?: boolean;
+  /** Proceed even though a similar product was found (from a prior preview call). */
+  confirmDuplicate?: boolean;
+}
+
+/**
+ * Creates a brand-new master product and attaches it to one shop — the
+ * function behind both the manual "Create New Product" form and a GOODS Excel
+ * row that matches nothing existing.
+ *
+ * Architecture preserved deliberately: this still writes to `products` (the
+ * shared central catalogue) and `shop_products` (the per-shop offering) as two
+ * separate rows, exactly like every other product in the system — there is no
+ * parallel "shop-owner product" table. What is new is who may create the
+ * `products` row and what its initial `approvalStatus` is.
+ *
+ * @param applyPriceImmediately Whether the submitted price may go live on
+ *   `shop_products` directly, or must be withheld pending the shop owner's
+ *   approval — computed by the caller via `appliesImmediately()` from
+ *   price-requests.ts. Kept as a plain boolean parameter (not imported here)
+ *   so this file never depends on price-requests.ts, avoiding a cycle: that
+ *   file already imports `updateShopProduct` from here.
+ */
+export async function createProductForShop(
+  input: CreateProductForShopInput,
+  actor: { id: string; role: UserRole },
+  applyPriceImmediately: boolean,
+  client?: DbClient,
+): Promise<{
+  product: Product;
+  shopProduct: ShopProduct;
+  reusedExisting: boolean;
+  similarWarning: Product[];
+}> {
+  const name = input.name.trim();
+  if (name.length < 2) {
+    throw validationFailed("Product name must be at least 2 characters.");
+  }
+  if (!input.unit.trim()) {
+    throw validationFailed("Unit is required.");
+  }
+
+  const lookupClient = client ?? db;
+  const category = await lookupClient.query.productCategories.findFirst({
+    where: and(
+      eq(productCategories.id, input.categoryId),
+      isNull(productCategories.deletedAt),
+    ),
+  });
+  if (!category) throw notFound("Category");
+
+  validatePricing({
+    onlineSaleEnabled: input.onlineSaleEnabled ?? false,
+    offlineSaleEnabled: input.offlineSaleEnabled ?? false,
+    onlinePricePaise: input.onlinePricePaise,
+    offlinePricePaise: input.offlinePricePaise,
+  });
+
+  const { exact, similar } = await findSimilarProducts(
+    name,
+    input.categoryId,
+    lookupClient,
+  );
+
+  // An exact name match in the same category IS this product — reuse it
+  // rather than create a duplicate row, exactly as item 5 asks.
+  if (exact) {
+    const shopProduct = await createShopProduct(
+      {
+        shopId: input.shopId,
+        productId: exact.id,
+        description: input.description,
+        imageUrl: input.imageUrl,
+        onlinePricePaise: applyPriceImmediately ? input.onlinePricePaise : null,
+        offlinePricePaise: applyPriceImmediately ? input.offlinePricePaise : null,
+        onlineSaleEnabled: applyPriceImmediately
+          ? (input.onlineSaleEnabled ?? false)
+          : false,
+        offlineSaleEnabled: applyPriceImmediately
+          ? (input.offlineSaleEnabled ?? false)
+          : false,
+        isAvailable: input.isAvailable,
+      },
+      actor as { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
+      lookupClient,
+    );
+    return {
+      product: exact,
+      shopProduct,
+      reusedExisting: true,
+      similarWarning: [],
+    };
+  }
+
+  if (similar.length > 0 && !input.confirmDuplicate) {
+    throw conflict(
+      `This looks similar to an existing product: ${similar
+        .map((p) => p.name)
+        .join(", ")}. Resubmit with confirmDuplicate to create it anyway.`,
+    );
+  }
+
+  const run = async (tx: DbClient) => {
+    const [product] = await tx
+      .insert(products)
+      .values({
+        categoryId: input.categoryId,
+        name,
+        slug: uniqueSlug(name),
+        description: input.description ?? null,
+        specifications: input.specifications ?? null,
+        subCategory: input.subCategory ?? null,
+        imageUrl: input.imageUrl ?? null,
+        unit: input.unit.trim(),
+        unitSizeMilli: input.unitSizeMilli ?? 1000,
+        subscribable: input.subscribable ?? false,
+        // A SHOP_OWNER's product must not be discoverable by other shops until
+        // an admin publishes it; OPERATOR/ADMIN already hold that trust.
+        approvalStatus: actor.role === "SHOP_OWNER" ? "PENDING_APPROVAL" : "APPROVED",
+        createdBy: actor.id,
+      })
+      .returning();
+
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.GLOBAL_PRODUCT_CREATED,
+        entityType: "product",
+        entityId: product.id,
+        newValue: {
+          name: product.name,
+          categoryId: product.categoryId,
+          approvalStatus: product.approvalStatus,
+          shopId: input.shopId,
+        },
+      },
+      tx,
+    );
+
+    const [shopProduct] = await tx
+      .insert(shopProducts)
+      .values({
+        shopId: input.shopId,
+        productId: product.id,
+        description: input.description ?? null,
+        imageUrl: input.imageUrl ?? null,
+        onlinePricePaise: applyPriceImmediately ? (input.onlinePricePaise ?? null) : null,
+        offlinePricePaise: applyPriceImmediately ? (input.offlinePricePaise ?? null) : null,
+        onlineSaleEnabled: applyPriceImmediately
+          ? (input.onlineSaleEnabled ?? false)
+          : false,
+        offlineSaleEnabled: applyPriceImmediately
+          ? (input.offlineSaleEnabled ?? false)
+          : false,
+        isActive: true,
+        isAvailable: input.isAvailable ?? true,
+      })
+      .returning();
+
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.PRODUCT_CREATED,
+        entityType: "shop_product",
+        entityId: shopProduct.id,
+        newValue: {
+          productId: product.id,
+          shopId: input.shopId,
+          pending: !applyPriceImmediately,
+        },
+      },
+      tx,
+    );
+
+    return { product, shopProduct, reusedExisting: false, similarWarning: similar };
+  };
+
+  return client ? run(client) : db.transaction(run);
+}
+
+export async function listPendingProductApprovals(): Promise<
+  (Product & { category: ProductCategory; createdByName: string | null })[]
+> {
+  const rows = await db
+    .select({
+      product: products,
+      category: productCategories,
+      createdByName: sql<string | null>`(SELECT name FROM users WHERE users.id = ${products.createdBy})`,
+    })
+    .from(products)
+    .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(eq(products.approvalStatus, "PENDING_APPROVAL"))
+    .orderBy(desc(products.createdAt));
+
+  return rows.map((r) => ({ ...r.product, category: r.category, createdByName: r.createdByName }));
+}
+
+/** Publishes a shop-owner-created product to the central catalogue. ADMIN only. */
+export async function approveProduct(
+  productId: string,
+  actor: { id: string; role: UserRole },
+): Promise<Product> {
+  const current = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+  });
+  if (!current) throw notFound("Product");
+  if (current.approvalStatus !== "PENDING_APPROVAL") {
+    throw conflict("This product has already been decided.");
+  }
+
+  const [updated] = await db
+    .update(products)
+    .set({ approvalStatus: "APPROVED", approvedBy: actor.id, approvedAt: new Date(), rejectionReason: null })
+    .where(eq(products.id, productId))
+    .returning();
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.PRODUCT_APPROVED,
+    entityType: "product",
+    entityId: productId,
+    previousValue: { approvalStatus: "PENDING_APPROVAL" },
+    newValue: { approvalStatus: "APPROVED" },
+  });
+  return updated;
+}
+
+export async function rejectProduct(
+  productId: string,
+  reason: string,
+  actor: { id: string; role: UserRole },
+): Promise<Product> {
+  const current = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+  });
+  if (!current) throw notFound("Product");
+  if (current.approvalStatus !== "PENDING_APPROVAL") {
+    throw conflict("This product has already been decided.");
+  }
+
+  const [updated] = await db
+    .update(products)
+    .set({
+      approvalStatus: "REJECTED",
+      approvedBy: actor.id,
+      approvedAt: new Date(),
+      rejectionReason: reason,
+    })
+    .where(eq(products.id, productId))
+    .returning();
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.PRODUCT_REJECTED,
+    entityType: "product",
+    entityId: productId,
+    previousValue: { approvalStatus: "PENDING_APPROVAL" },
+    newValue: { approvalStatus: "REJECTED", reason },
+  });
+  return updated;
 }
 
 /* ------------------------------------------------ shop-product offerings */
@@ -144,6 +512,23 @@ export async function getShopProduct(
 
   if (!row) return undefined;
   return { ...row.sp, product: row.product, category: row.category };
+}
+
+/** Product counts per shop, for the admin "Shop Product Management" list. */
+export async function countProductsByShop(
+  shopIds: readonly string[],
+): Promise<Record<string, number>> {
+  if (shopIds.length === 0) return {};
+  const rows = await db
+    .select({
+      shopId: shopProducts.shopId,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(shopProducts)
+    .where(and(inArray(shopProducts.shopId, [...shopIds]), isNull(shopProducts.deletedAt)))
+    .groupBy(shopProducts.shopId);
+
+  return Object.fromEntries(rows.map((r) => [r.shopId, r.count]));
 }
 
 export async function listShopProducts(
@@ -223,10 +608,11 @@ function validatePricing(input: {
 export async function createShopProduct(
   input: UpsertShopProductInput,
   actor: { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
+  client: DbClient = db,
 ): Promise<ShopProduct> {
   validatePricing(input);
 
-  const duplicate = await db.query.shopProducts.findFirst({
+  const duplicate = await client.query.shopProducts.findFirst({
     where: and(
       eq(shopProducts.shopId, input.shopId),
       eq(shopProducts.productId, input.productId),
@@ -236,7 +622,7 @@ export async function createShopProduct(
     throw conflict("This product is already in your shop's catalogue.");
   }
 
-  const [created] = await db
+  const [created] = await client
     .insert(shopProducts)
     .values({
       shopId: input.shopId,
@@ -255,18 +641,21 @@ export async function createShopProduct(
     })
     .returning();
 
-  await recordAudit({
-    actorId: actor.id,
-    actorRole: actor.role,
-    action: AUDIT_ACTIONS.PRODUCT_CREATED,
-    entityType: "shop_product",
-    entityId: created.id,
-    newValue: {
-      onlinePricePaise: created.onlinePricePaise,
-      offlinePricePaise: created.offlinePricePaise,
-      onlineSaleEnabled: created.onlineSaleEnabled,
+  await recordAudit(
+    {
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: AUDIT_ACTIONS.PRODUCT_CREATED,
+      entityType: "shop_product",
+      entityId: created.id,
+      newValue: {
+        onlinePricePaise: created.onlinePricePaise,
+        offlinePricePaise: created.offlinePricePaise,
+        onlineSaleEnabled: created.onlineSaleEnabled,
+      },
     },
-  });
+    client,
+  );
   return created;
 }
 

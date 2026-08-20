@@ -181,6 +181,8 @@ export const excelRowStatusEnum = pgEnum("excel_row_status", [
   "DUPLICATE",
   "NOT_FOUND",
   "MISSING_FIELD",
+  /** GOODS upload only: no code/name match anywhere — a new product will be created. */
+  "NEW_PRODUCT",
 ]);
 
 /** Registration-fee settlement state for one shop (§4.2). */
@@ -214,6 +216,18 @@ export const referralStatusEnum = pgEnum("referral_status", [
   "ACTIVE",
   "INACTIVE",
   "EXPIRED",
+]);
+
+/**
+ * Central-catalogue visibility for a product a SHOP_OWNER created (§ product
+ * management brief). ACTIVE/INACTIVE already exist via `products.isActive` and
+ * soft-delete, so this enum covers only the approval dimension — mirrors the
+ * PENDING_APPROVAL/APPROVED/REJECTED vocabulary `shops.status` already uses.
+ */
+export const productApprovalStatusEnum = pgEnum("product_approval_status", [
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "REJECTED",
 ]);
 
 /* ------------------------------------------------- auth (Auth.js managed) */
@@ -523,6 +537,10 @@ export const products = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
+    /** Structured spec sheet (bullet points), distinct from prose description. */
+    specifications: text("specifications"),
+    /** Freeform, optional — the schema has no subcategory table to join to. */
+    subCategory: text("sub_category"),
     imageUrl: text("image_url"),
     /** Display unit: L, ml, kg, g, piece, pack. */
     unit: text("unit").notNull(),
@@ -531,6 +549,21 @@ export const products = pgTable(
     /** Whether this product can be sold as a recurring daily subscription. */
     subscribable: boolean("subscribable").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
+    /**
+     * Central-catalogue visibility. Defaults APPROVED so every seeded/reference
+     * product behaves exactly as before. Only a product a SHOP_OWNER creates
+     * themselves starts PENDING_APPROVAL — it is immediately usable in their own
+     * shop via shop_products regardless of this value; this column only gates
+     * whether OTHER shops can discover it through search/suggestions.
+     */
+    approvalStatus: productApprovalStatusEnum("approval_status")
+      .notNull()
+      .default("APPROVED"),
+    /** Who created this product row. Null for seeded/reference catalogue rows. */
+    createdBy: uuid("created_by").references(() => users.id),
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -540,6 +573,7 @@ export const products = pgTable(
     uniqueIndex("products_slug_unique").on(t.slug),
     uniqueIndex("products_code_unique").on(t.code),
     index("products_category_idx").on(t.categoryId),
+    index("products_approval_status_idx").on(t.approvalStatus),
   ],
 );
 
@@ -1311,6 +1345,23 @@ export const excelUploadItems = pgTable(
       () => shopProducts.id,
       { onDelete: "set null" },
     ),
+    /**
+     * GOODS upload only: the row matched a product in the CENTRAL catalogue
+     * that this shop does not yet carry — apply() attaches it via
+     * createShopProduct rather than creating a new products row.
+     */
+    matchedProductId: uuid("matched_product_id").references(() => products.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * GOODS upload only: set when a NEW_PRODUCT row's name is close to an
+     * existing product, so the preview can warn "this looks like X" without
+     * blocking the row (§ "flag it for review").
+     */
+    possibleDuplicateProductId: uuid("possible_duplicate_product_id").references(
+      () => products.id,
+      { onDelete: "set null" },
+    ),
     status: excelRowStatusEnum("status").notNull(),
     errorMessage: text("error_message"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1466,6 +1517,8 @@ export type ShopPaymentMethod =
 export type ExcelRowStatus = (typeof excelRowStatusEnum.enumValues)[number];
 export type ExcelUploadType = (typeof excelUploadTypeEnum.enumValues)[number];
 export type ReferralStatus = (typeof referralStatusEnum.enumValues)[number];
+export type ProductApprovalStatus =
+  (typeof productApprovalStatusEnum.enumValues)[number];
 export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];

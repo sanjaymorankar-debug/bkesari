@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { count, eq, sql } from "drizzle-orm";
 
 import { AuditLogView } from "@/components/audit-log-view";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
+import { ProductApprovalQueue } from "@/components/product-approval-queue";
 import { ReferralManager } from "@/components/referral-manager";
 import { RegistrationFeeManager } from "@/components/registration-fee-manager";
 import { ShopApprovalPanel } from "@/components/shop-approval-panel";
@@ -16,6 +18,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders, shops, users, wallets } from "@/server/db/schema";
 import { listAuditLog } from "@/server/services/audit-log-query";
+import { listPendingProductApprovals } from "@/server/services/catalogue";
 import { listAllPending } from "@/server/services/price-requests";
 import {
   getReferralPerformance,
@@ -56,6 +59,7 @@ export default async function AdminPage() {
   const canRecordPayment = can(user.role, PERMISSIONS.PAYMENT_RECORD);
   const canManageReferrals = can(user.role, PERMISSIONS.REFERRAL_MANAGE);
   const canDecideAny = can(user.role, PERMISSIONS.PRICE_REQUEST_DECIDE_ANY);
+  const canApproveProducts = can(user.role, PERMISSIONS.PRODUCT_APPROVE);
   const canViewAudit =
     can(user.role, PERMISSIONS.AUDIT_LOG_VIEW) ||
     can(user.role, PERMISSIONS.AUDIT_LOG_VIEW_LIMITED);
@@ -100,6 +104,7 @@ export default async function AdminPage() {
     referralPerformance,
     feeConfig,
     auditRows,
+    pendingProducts,
   ] = await Promise.all([
     searchShopsAdmin({ limit: 500 }),
     getRegistrationFeeReport(),
@@ -110,6 +115,7 @@ export default async function AdminPage() {
       ? Promise.all([getActiveFee(), listFeeHistory()])
       : Promise.resolve([undefined, []] as const),
     canViewAudit ? listAuditLog(user.role, { limit: 100 }) : Promise.resolve([]),
+    canApproveProducts ? listPendingProductApprovals() : Promise.resolve([]),
   ]);
 
   const [activeFee, feeHistory] = feeConfig as [
@@ -136,6 +142,14 @@ export default async function AdminPage() {
           user.role === "ADMIN"
             ? "Full system overview and controls."
             : "Operational controls for shops, products and orders."
+        }
+        action={
+          <Link
+            href="/admin/shops"
+            className="text-sm font-medium text-kesari-600 hover:underline"
+          >
+            Shop Product Management →
+          </Link>
         }
       />
 
@@ -202,6 +216,22 @@ export default async function AdminPage() {
             }))}
             showShop
             canOverride
+          />
+        </Section>
+      ) : null}
+
+      {canApproveProducts ? (
+        <Section title={`Products awaiting publication (${pendingProducts.length})`}>
+          <ProductApprovalQueue
+            rows={pendingProducts.map((p) => ({
+              id: p.id,
+              name: p.name,
+              categoryName: p.category.name,
+              unit: p.unit,
+              description: p.description,
+              createdByName: p.createdByName,
+              createdAt: p.createdAt.toISOString(),
+            }))}
           />
         </Section>
       ) : null}
