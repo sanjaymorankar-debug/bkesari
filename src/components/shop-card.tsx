@@ -1,14 +1,9 @@
 import Link from "next/link";
 
 import { Badge, Card, ClassificationBadge } from "@/components/ui";
+import { shopTypeLabel } from "@/lib/shop-types";
 import { isShopOpenNow } from "@/server/services/shops";
 import type { Shop } from "@/server/db/schema";
-
-const SHOP_TYPE_LABEL = {
-  DAIRY: "Dairy",
-  BAKERY: "Bakery",
-  BOTH: "Dairy & Bakery",
-} as const;
 
 /** Shop card per requirement §15. */
 export function ShopCard({ shop }: { shop: Shop }) {
@@ -34,7 +29,7 @@ export function ShopCard({ shop }: { shop: Shop }) {
       <div className="flex flex-1 flex-col p-4">
         <div className="mb-1 flex flex-wrap items-center gap-1.5">
           <ClassificationBadge value={shop.classification} />
-          <Badge>{SHOP_TYPE_LABEL[shop.shopType]}</Badge>
+          <Badge>{shopTypeLabel(shop.shopType)}</Badge>
           {open ? (
             <Badge tone="success">Open</Badge>
           ) : (

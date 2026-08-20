@@ -3,8 +3,9 @@ import Link from "next/link";
 import { ProductCard } from "@/components/product-card";
 import { ShopCard } from "@/components/shop-card";
 import { Card, EmptyState, Section } from "@/components/ui";
+import { SHOP_TYPES } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
-import { listCategories, listStorefrontProducts } from "@/server/services/catalogue";
+import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";
 
 export const dynamic = "force-dynamic";
@@ -13,23 +14,14 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const user = await getCurrentUser();
 
-  const [
-    dairyProducts,
-    bakeryProducts,
-    featuredShops,
-    kesariShops,
-    greenShops,
-    dairyCategories,
-    bakeryCategories,
-  ] = await Promise.all([
-    listStorefrontProducts({ department: "DAIRY", onlineOnly: true, limit: 8 }),
-    listStorefrontProducts({ department: "BAKERY", onlineOnly: true, limit: 8 }),
-    searchShops({ limit: 4 }),
-    searchShops({ classification: "KESARI", limit: 4 }),
-    searchShops({ classification: "GREEN", limit: 4 }),
-    listCategories("DAIRY"),
-    listCategories("BAKERY"),
-  ]);
+  const [dairyProducts, bakeryProducts, featuredShops, kesariShops, greenShops] =
+    await Promise.all([
+      listStorefrontProducts({ department: "DAIRY", onlineOnly: true, limit: 8 }),
+      listStorefrontProducts({ department: "BAKERY", onlineOnly: true, limit: 8 }),
+      searchShops({ limit: 4 }),
+      searchShops({ classification: "KESARI", limit: 4 }),
+      searchShops({ classification: "GREEN", limit: 4 }),
+    ]);
 
   const signedIn = Boolean(user);
 
@@ -37,18 +29,18 @@ export default async function HomePage() {
     <>
       <section className="mb-10 overflow-hidden rounded-2xl bg-gradient-to-br from-kesari-50 via-cream-100 to-leaf-50 px-6 py-10 sm:px-10 sm:py-14">
         <h1 className="max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Fresh dairy and bakery, delivered daily
+          Every neighbourhood shop, in one directory
         </h1>
         <p className="mt-3 max-w-xl text-base text-ink-600">
-          Order from shops near you, pay straight from your wallet, and set up a
-          daily milk subscription you can change any time.
+          Find a shop near you by product, area or PIN code — from daily
+          dairy and bakery delivery to grocery, pharmacy, jewellery and more.
         </p>
 
         <form action="/search" className="mt-6 flex max-w-xl gap-2">
           <input
             type="search"
             name="q"
-            placeholder="Search milk, bread, a shop, an area or PIN code"
+            placeholder="Search a product, a shop, an area or PIN code"
             aria-label="Search"
             className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm focus:border-kesari-500 focus:outline-none"
           />
@@ -61,25 +53,22 @@ export default async function HomePage() {
         </form>
       </section>
 
-      {/* Two clearly separated departments (§7). */}
-      <section className="mb-10 grid gap-4 sm:grid-cols-2">
-        <DepartmentTile
-          href="/dairy"
-          title="Dairy"
-          description="Milk, curd, paneer, ghee and more"
-          categories={dairyCategories.map((c) => c.name)}
-          className="from-kesari-50 to-cream-100"
-        />
-        <DepartmentTile
-          href="/bakery"
-          title="Bakery"
-          description="Bread, buns, cakes, khari and more"
-          categories={bakeryCategories.map((c) => c.name)}
-          className="from-leaf-50 to-cream-100"
-        />
-      </section>
+      {/* Every shop type is browsable, even without an account (§6). */}
+      <Section title="Browse all categories" href="/categories">
+        <div className="flex flex-wrap gap-2">
+          {SHOP_TYPES.map((t) => (
+            <Link
+              key={t.key}
+              href={`/category/${t.key}`}
+              className="rounded-full border border-cream-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700 hover:border-kesari-300 hover:text-kesari-700"
+            >
+              {t.label}
+            </Link>
+          ))}
+        </div>
+      </Section>
 
-      <Section title="Dairy products" href="/dairy">
+      <Section title="Dairy products" href="/category/DAIRY">
         {dairyProducts.length === 0 ? (
           <EmptyState title="No dairy products listed yet." />
         ) : (
@@ -87,7 +76,7 @@ export default async function HomePage() {
         )}
       </Section>
 
-      <Section title="Bakery products" href="/bakery">
+      <Section title="Bakery products" href="/category/BAKERY">
         {bakeryProducts.length === 0 ? (
           <EmptyState title="No bakery products listed yet." />
         ) : (
@@ -114,10 +103,11 @@ export default async function HomePage() {
       <Card className="mb-6 flex flex-wrap items-center justify-between gap-4 p-6">
         <div>
           <h2 className="text-lg font-semibold text-ink-900">
-            Run a dairy or bakery?
+            Run a shop?
           </h2>
           <p className="mt-1 text-sm text-ink-500">
-            List your shop and start taking online orders and subscriptions.
+            List your shop and start taking online orders — grocery, dairy,
+            bakery, pharmacy or any of our 44 shop types.
           </p>
         </div>
         <Link
@@ -128,40 +118,6 @@ export default async function HomePage() {
         </Link>
       </Card>
     </>
-  );
-}
-
-function DepartmentTile({
-  href,
-  title,
-  description,
-  categories,
-  className,
-}: {
-  href: string;
-  title: string;
-  description: string;
-  categories: string[];
-  className: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`block rounded-xl bg-gradient-to-br ${className} p-6 transition-shadow hover:shadow-md`}
-    >
-      <h2 className="text-xl font-semibold text-ink-900">{title}</h2>
-      <p className="mt-1 text-sm text-ink-600">{description}</p>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {categories.slice(0, 6).map((name) => (
-          <span
-            key={name}
-            className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium text-ink-600"
-          >
-            {name}
-          </span>
-        ))}
-      </div>
-    </Link>
   );
 }
 

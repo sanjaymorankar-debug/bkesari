@@ -152,6 +152,23 @@ function ProductRow({ product }: { product: ManagedProduct }) {
     router.refresh();
   }
 
+  async function remove() {
+    if (!window.confirm(`Remove ${product.productName} from your shop?`)) return;
+    setBusy(true);
+    setError(null);
+    const response = await fetch(`/api/shop-products/${product.id}`, {
+      method: "DELETE",
+    });
+    setBusy(false);
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      setError(payload?.error?.message ?? "Could not remove this product.");
+      return;
+    }
+    router.refresh();
+  }
+
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -183,8 +200,15 @@ function ProductRow({ product }: { product: ManagedProduct }) {
           <Button size="sm" variant="secondary" onClick={() => setOpen((v) => !v)}>
             {open ? "Close" : "Edit"}
           </Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={remove}>
+            Remove
+          </Button>
         </div>
       </div>
+
+      {error && !open ? (
+        <p className="mt-2 text-xs text-red-600">{error}</p>
+      ) : null}
 
       {open ? (
         <div className="mt-4 grid gap-3 border-t border-cream-200 pt-4 sm:grid-cols-2">

@@ -14,6 +14,8 @@ import {
 } from "@/server/services/catalogue";
 import { changeClassification, registerShop } from "@/server/services/shops";
 import { addToCart } from "@/server/services/cart";
+import { setUserRole } from "@/server/services/users";
+import { bootstrapAdminEmails } from "@/lib/env";
 import {
   createCategory,
   createProduct,
@@ -77,6 +79,27 @@ describe("permission matrix (§4)", () => {
     for (const [, perms] of Object.entries(ROLE_PERMISSIONS)) {
       for (const p of perms) expect(adminSet.has(p)).toBe(true);
     }
+  });
+});
+
+describe("role assignment is admin-only (§5)", () => {
+  it("bootstraps the two permanent admin emails regardless of env config", () => {
+    const emails = bootstrapAdminEmails();
+    expect(emails).toContain("agtcipl@gmail.com");
+    expect(emails).toContain("sanjaymoranar@gmail.com");
+  });
+
+  it("lets an admin change another user's role and records who/when", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const target = await createUser({ role: "CUSTOMER" });
+
+    const updated = await setUserRole(target.id, "SHOP_OWNER", admin);
+    expect(updated.role).toBe("SHOP_OWNER");
+  });
+
+  it("refuses to let an actor change their own role, even an admin", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    await expect(setUserRole(admin.id, "CUSTOMER", admin)).rejects.toThrow();
   });
 });
 

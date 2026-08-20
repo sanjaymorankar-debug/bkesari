@@ -118,9 +118,8 @@ export async function listProducts(options: {
  * chooses which of these they actually stock.
  */
 export async function suggestProductsForShopType(
-  shopType: "DAIRY" | "BAKERY" | "BOTH",
+  shopType: Department,
 ): Promise<(Product & { category: ProductCategory })[]> {
-  if (shopType === "BOTH") return listProducts({});
   return listProducts({ department: shopType });
 }
 
@@ -393,6 +392,45 @@ export async function updateShopProduct(
     }
 
     return updated;
+  });
+}
+
+/**
+ * Removes a product from a shop's catalogue (§9 "remove products").
+ * Soft-deletes rather than hard-deletes: past orders reference shop_products
+ * via order_items and must keep resolving, so the row stays but stops
+ * appearing anywhere it is listed or purchasable.
+ */
+export async function removeShopProduct(
+  shopProductId: string,
+  actor: { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
+): Promise<void> {
+  const [current] = await db
+    .select()
+    .from(shopProducts)
+    .where(and(eq(shopProducts.id, shopProductId), isNull(shopProducts.deletedAt)));
+  if (!current) throw notFound("Product");
+
+  await db
+    .update(shopProducts)
+    .set({
+      deletedAt: new Date(),
+      isActive: false,
+      isAvailable: false,
+      onlineSaleEnabled: false,
+      offlineSaleEnabled: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(shopProducts.id, shopProductId));
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.PRODUCT_AVAILABILITY_CHANGED,
+    entityType: "shop_product",
+    entityId: shopProductId,
+    previousValue: { deletedAt: null },
+    newValue: { deletedAt: new Date().toISOString(), removed: true },
   });
 }
 

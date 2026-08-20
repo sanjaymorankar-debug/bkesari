@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 import { rupeesToPaise } from "@/lib/money";
+import { SHOP_TYPES } from "@/lib/shop-types";
 
 /**
  * Shop registration (§8).
@@ -136,10 +137,15 @@ export function ShopRegisterForm() {
             hint="We'll suggest the right products to list based on this."
             error={fieldErrors.shopType}
           >
-            <select name="shopType" required className={inputClass}>
-              <option value="DAIRY">Dairy</option>
-              <option value="BAKERY">Bakery</option>
-              <option value="BOTH">Dairy &amp; Bakery</option>
+            <select name="shopType" required defaultValue="" className={inputClass}>
+              <option value="" disabled>
+                Select a shop type
+              </option>
+              {SHOP_TYPES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
             </select>
           </Field>
         </div>

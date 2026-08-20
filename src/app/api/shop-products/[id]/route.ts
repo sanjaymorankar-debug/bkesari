@@ -1,4 +1,4 @@
-/** Update one shop offering: price, availability, stock (§11–§13). */
+/** Update or remove one shop offering: price, availability, stock (§11–§13). */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -9,7 +9,7 @@ import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shopProducts } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { updateShopProduct } from "@/server/services/catalogue";
+import { removeShopProduct, updateShopProduct } from "@/server/services/catalogue";
 
 const schema = z.object({
   description: z.string().max(500).nullish(),
@@ -42,5 +42,25 @@ export const PATCH = route(
 
     const body = await parseBody(request, schema);
     return ok(await updateShopProduct(id, body, user as never));
+  },
+);
+
+/** Removes a product from the shop's catalogue (§9 "remove products"). */
+export const DELETE = route(
+  async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+    const { id } = await context.params;
+
+    const existing = await db.query.shopProducts.findFirst({
+      where: eq(shopProducts.id, id),
+      columns: { shopId: true },
+    });
+    if (!existing) throw notFound("Product");
+
+    const { user } = await requireShopAccess(existing.shopId, {
+      anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
+    });
+
+    await removeShopProduct(id, user as never);
+    return ok({ removed: true });
   },
 );

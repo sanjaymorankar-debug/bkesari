@@ -12,7 +12,11 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 
-import { bootstrapAdminEmails, getEnv } from "@/lib/env";
+import {
+  bootstrapAdminEmails,
+  getEnv,
+  permanentBootstrapAdminEmails,
+} from "@/lib/env";
 import { db } from "@/server/db";
 import {
   accounts,
@@ -59,7 +63,10 @@ const testCredentialsProvider = Credentials({
         image: existing.image,
       };
     }
-    const [created] = await db.insert(users).values({ email }).returning();
+    const role: UserRole = bootstrapAdminEmails().includes(email)
+      ? "ADMIN"
+      : "CUSTOMER";
+    const [created] = await db.insert(users).values({ email, role }).returning();
     await ensureWallet(created.id);
     return { id: created.id, email: created.email, name: created.name };
   },
@@ -118,10 +125,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!userId) return session;
 
       // Authoritative read: role and status always come from the database.
-      const record = await db.query.users.findFirst({
+      let record = await db.query.users.findFirst({
         where: eq(users.id, userId),
       });
       if (!record) return session;
+
+      // Self-healing: the two permanently bootstrapped admin emails are kept
+      // at ADMIN on every session refresh, not just at first sign-in — this
+      // covers accounts that already existed (e.g. created before this list
+      // was configured) rather than relying solely on the one-time
+      // `createUser` bootstrap below.
+      if (
+        record.role !== "ADMIN" &&
+        permanentBootstrapAdminEmails().includes(record.email.toLowerCase())
+      ) {
+        [record] = await db
+          .update(users)
+          .set({ role: "ADMIN", updatedAt: new Date() })
+          .where(eq(users.id, record.id))
+          .returning();
+      }
 
       session.user.id = record.id;
       session.user.role = record.role;
