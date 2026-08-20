@@ -39,7 +39,7 @@ export default async function SubscriptionsPage() {
       <PageHeader
         title="My Subscriptions"
         description="Recurring deliveries paid from your wallet."
-        action={<LinkButton href="/dairy">Browse products</LinkButton>}
+        action={<LinkButton href="/category/DAIRY">Browse products</LinkButton>}
       />
 
       {!forecast.sufficient && active.length > 0 ? (
@@ -60,7 +60,7 @@ export default async function SubscriptionsPage() {
         <EmptyState
           title="No subscriptions yet"
           description="Subscribe to milk, curd or bread and it will be delivered automatically each day."
-          action={<LinkButton href="/dairy">Find something to subscribe to</LinkButton>}
+          action={<LinkButton href="/category/DAIRY">Find something to subscribe to</LinkButton>}
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">

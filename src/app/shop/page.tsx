@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ShopProductManager } from "@/components/shop-product-manager";
+import { ShopSettingsForm } from "@/components/shop-settings-form";
 import {
   Alert,
   Badge,
@@ -167,6 +168,10 @@ export default async function ShopDashboardPage() {
           </Card>
         )}
       </section>
+
+      <div className="mb-8">
+        <ShopSettingsForm shopId={shop.id} initialHours={shop.openingHours} />
+      </div>
 
       <ShopProductManager
         shopId={shop.id}

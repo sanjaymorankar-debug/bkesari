@@ -1,5 +1,6 @@
 import { ShopGrid } from "@/app/page";
 import { Card, PageHeader } from "@/components/ui";
+import { SHOP_TYPES, type ShopTypeKey } from "@/lib/shop-types";
 import { searchShops } from "@/server/services/shops";
 
 export const metadata = { title: "Shops" };
@@ -28,7 +29,7 @@ export default async function ShopsPage({
     city: params.city || undefined,
     area: params.area || undefined,
     pincode: params.pincode || undefined,
-    shopType: (params.type as "DAIRY" | "BAKERY" | "BOTH") || undefined,
+    shopType: (params.type as ShopTypeKey) || undefined,
     classification: (params.classification as "KESARI" | "GREEN") || undefined,
     deliveryOnly: params.delivery === "true",
     limit: 48,
@@ -65,9 +66,11 @@ export default async function ShopsPage({
             className="rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
           >
             <option value="">All shop types</option>
-            <option value="DAIRY">Dairy</option>
-            <option value="BAKERY">Bakery</option>
-            <option value="BOTH">Dairy &amp; Bakery</option>
+            {SHOP_TYPES.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.label}
+              </option>
+            ))}
           </select>
           <select
             name="classification"

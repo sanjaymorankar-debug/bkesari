@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ProductGrid } from "@/app/page";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
+import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
@@ -33,9 +34,15 @@ export default async function ShopPage({
   const user = await getCurrentUser();
   const products = await listStorefrontProducts({ shopId: shop.id, limit: 100 });
 
-  // Products are separated by department, per §16.
-  const dairy = products.filter((p) => p.department === "DAIRY");
-  const bakery = products.filter((p) => p.department === "BAKERY");
+  // Products are grouped by category, per §16 — generic across all 44 shop
+  // types rather than assuming dairy/bakery.
+  const byCategory = new Map<string, typeof products>();
+  for (const product of products) {
+    const key = product.categoryName;
+    const group = byCategory.get(key);
+    if (group) group.push(product);
+    else byCategory.set(key, [product]);
+  }
   const open = isShopOpenNow(shop);
 
   return (
@@ -45,13 +52,7 @@ export default async function ShopPage({
         <div className="p-6">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <ClassificationBadge value={shop.classification} />
-            <Badge>
-              {shop.shopType === "BOTH"
-                ? "Dairy & Bakery"
-                : shop.shopType === "DAIRY"
-                  ? "Dairy"
-                  : "Bakery"}
-            </Badge>
+            <Badge>{shopTypeLabel(shop.shopType)}</Badge>
             {open ? (
               <Badge tone="success">Open now</Badge>
             ) : (
@@ -109,19 +110,12 @@ export default async function ShopPage({
         </div>
       </Card>
 
-      {dairy.length > 0 ? (
-        <section className="mb-8">
-          <PageHeader title="Dairy" />
-          <ProductGrid products={dairy} signedIn={Boolean(user)} />
+      {Array.from(byCategory.entries()).map(([categoryName, items]) => (
+        <section key={categoryName} className="mb-8">
+          <PageHeader title={categoryName} />
+          <ProductGrid products={items} signedIn={Boolean(user)} />
         </section>
-      ) : null}
-
-      {bakery.length > 0 ? (
-        <section className="mb-8">
-          <PageHeader title="Bakery" />
-          <ProductGrid products={bakery} signedIn={Boolean(user)} />
-        </section>
-      ) : null}
+      ))}
 
       {products.length === 0 ? (
         <EmptyState

@@ -17,6 +17,7 @@ import {
   type Department,
   type UserRole,
 } from "@/server/db/schema";
+import type { ShopTypeKey } from "@/lib/shop-types";
 
 let counter = 0;
 const uniq = () => `${Date.now().toString(36)}-${(counter += 1)}`;
@@ -101,7 +102,7 @@ export async function createShop(
   ownerId: string,
   overrides: {
     status?: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "SUSPENDED" | "INACTIVE";
-    shopType?: "DAIRY" | "BAKERY" | "BOTH";
+    shopType?: ShopTypeKey;
     classification?: "KESARI" | "GREEN" | null;
     name?: string;
     deliveryAvailable?: boolean;

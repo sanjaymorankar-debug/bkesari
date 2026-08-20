@@ -29,6 +29,7 @@ import {
   ROLE_LABELS,
   ROLE_PERMISSIONS,
 } from "../authz/permissions";
+import { SHOP_TYPES } from "@/lib/shop-types";
 
 /** Requirement §7 — the starting catalogue. */
 const DAIRY_CATALOGUE = [
@@ -136,6 +137,69 @@ async function seedCatalogue(): Promise<void> {
   console.log(`  catalogue seeded: ${categoryCount} categories, ${productCount} products`);
 }
 
+/**
+ * Standard goods for every shop type OTHER than DAIRY and BAKERY, which keep
+ * their hand-curated catalogues above. One category per shop type (named
+ * after the shop type itself), one product per typical good listed for it.
+ *
+ * Product slugs are prefixed with the category slug (unlike the DAIRY/BAKERY
+ * catalogue, whose product slugs are bare) so that a generic good name that
+ * recurs across shop types — "Eggs" appears under Convenience Store, Meat
+ * Shop and Poultry Supply Store alike — never collides with another type's
+ * product of the same name.
+ */
+async function seedGeneralCatalogue(): Promise<void> {
+  let categoryCount = 0;
+  let productCount = 0;
+
+  const excluded = new Set(["DAIRY", "BAKERY"]);
+
+  for (const shopType of SHOP_TYPES) {
+    if (excluded.has(shopType.key)) continue;
+
+    const categorySlug = slugify(shopType.label);
+    const [category] = await db
+      .insert(productCategories)
+      .values({
+        department: shopType.key,
+        name: shopType.label,
+        slug: categorySlug,
+        description: `Standard goods for a ${shopType.label.toLowerCase()}.`,
+        sortOrder: 0,
+      })
+      .onConflictDoUpdate({
+        target: productCategories.slug,
+        set: { name: shopType.label, department: shopType.key },
+      })
+      .returning();
+    categoryCount += 1;
+
+    for (const good of shopType.standardGoods) {
+      const productSlug = `${categorySlug}-${slugify(good)}`;
+      await db
+        .insert(products)
+        .values({
+          categoryId: category.id,
+          name: good,
+          slug: productSlug,
+          unit: "unit",
+          unitSizeMilli: 1000,
+          // The daily-subscription model is specific to dairy/bakery delivery;
+          // general goods are not offered as subscriptions.
+          subscribable: false,
+        })
+        .onConflictDoUpdate({
+          target: products.slug,
+          set: { categoryId: category.id, name: good },
+        });
+      productCount += 1;
+    }
+  }
+  console.log(
+    `  general catalogue seeded: ${categoryCount} shop-type categories, ${productCount} standard goods`,
+  );
+}
+
 /** Demonstration shops so the marketplace is browsable immediately. */
 async function seedDemoMarketplace(): Promise<void> {
   const demoShops = [
@@ -169,7 +233,9 @@ async function seedDemoMarketplace(): Promise<void> {
     {
       email: "anand.combo@example.com",
       name: "Anand Dairy & Bakery",
-      shopType: "BOTH" as const,
+      // A shop now has one primary type (BOTH was retired). Kept as DAIRY —
+      // it still lists both dairy and bakery products via `picks` below.
+      shopType: "DAIRY" as const,
       classification: "KESARI" as const,
       area: "Viman Nagar",
       pincode: "411014",
@@ -324,6 +390,7 @@ async function main() {
 
   await seedRolesAndPermissions();
   await seedCatalogue();
+  await seedGeneralCatalogue();
   if (!minimal) await seedDemoMarketplace();
 
   const [{ count }] = await db

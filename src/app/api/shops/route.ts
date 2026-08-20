@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest) => {
   const p = new URL(request.url).searchParams;
+  const type = p.get("type");
   // Search is public: only APPROVED shops are ever returned by the service.
   return ok(
     await searchShops({
@@ -18,7 +20,10 @@ export const GET = route(async (request: NextRequest) => {
       city: p.get("city") ?? undefined,
       area: p.get("area") ?? undefined,
       pincode: p.get("pincode") ?? undefined,
-      shopType: (p.get("type") as "DAIRY" | "BAKERY" | "BOTH") ?? undefined,
+      shopType:
+        type && (SHOP_TYPE_KEYS as readonly string[]).includes(type)
+          ? (type as ShopTypeKey)
+          : undefined,
       classification: (p.get("classification") as "KESARI" | "GREEN") ?? undefined,
       deliveryOnly: p.get("delivery") === "true",
       limit: Number(p.get("limit") ?? 24),
@@ -38,7 +43,7 @@ const registerSchema = z.object({
   city: z.string().min(2).max(120),
   state: z.string().max(120).nullish(),
   pincode: z.string().regex(/^\d{6}$/, "PIN code must be 6 digits"),
-  shopType: z.enum(["DAIRY", "BAKERY", "BOTH"]),
+  shopType: z.enum(SHOP_TYPE_KEYS),
   logoUrl: z.string().url().nullish(),
   photos: z.array(z.string().url()).max(10).default([]),
   openingHours: z

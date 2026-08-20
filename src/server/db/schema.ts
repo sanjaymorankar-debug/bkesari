@@ -7,6 +7,7 @@
  *  - Financial rows (wallet_transactions, order_items) are immutable once written.
  */
 import { sql } from "drizzle-orm";
+import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   bigint,
   boolean,
@@ -47,8 +48,12 @@ export const shopStatusEnum = pgEnum("shop_status", [
   "INACTIVE",
 ]);
 
-/** A shop sells dairy, bakery, or both. */
-export const shopTypeEnum = pgEnum("shop_type", ["DAIRY", "BAKERY", "BOTH"]);
+/**
+ * A shop's primary business category — one of the 44 standard shop types
+ * (grocery, dairy, bakery, pharmacy, jewellery, ...). Source of truth is
+ * `src/lib/shop-types.ts`; add new types there, not here.
+ */
+export const shopTypeEnum = pgEnum("shop_type", SHOP_TYPE_KEYS);
 
 /** Operator/Admin-controlled quality classification. Shop owners cannot change this. */
 export const classificationEnum = pgEnum("shop_classification", [
@@ -56,8 +61,12 @@ export const classificationEnum = pgEnum("shop_classification", [
   "GREEN",
 ]);
 
-/** Top-level department a category belongs to. */
-export const departmentEnum = pgEnum("department", ["DAIRY", "BAKERY"]);
+/**
+ * Which shop type a product category belongs to. Reuses the same value set as
+ * shopTypeEnum: a catalogue category is always scoped to one shop type (e.g.
+ * "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
+ */
+export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
 
 export const orderStatusEnum = pgEnum("order_status", [
   "PENDING",

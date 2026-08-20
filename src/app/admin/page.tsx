@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { count, eq, sql } from "drizzle-orm";
 
 import { ShopApprovalPanel } from "@/components/shop-approval-panel";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, PageHeader, Section } from "@/components/ui";
+import { UserRoleManager } from "@/components/user-role-manager";
 import { formatPaiseCompact } from "@/lib/money";
+import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -14,6 +16,7 @@ import {
   searchShops,
 } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
+import { listUsers } from "@/server/services/users";
 
 export const metadata = { title: "Admin" };
 export const dynamic = "force-dynamic";
@@ -30,6 +33,8 @@ export default async function AdminPage() {
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
 
   const showFinancials = can(user.role, PERMISSIONS.REPORT_VIEW_ALL);
+  const canViewUsers = can(user.role, PERMISSIONS.USER_VIEW_ANY);
+  const canSetRole = can(user.role, PERMISSIONS.USER_SET_ROLE);
 
   const [
     pending,
@@ -39,6 +44,7 @@ export default async function AdminPage() {
     userCount,
     orderStats,
     walletTotal,
+    userList,
   ] = await Promise.all([
     listShopsByStatus("PENDING_APPROVAL"),
     searchShops({ limit: 100 }),
@@ -59,16 +65,19 @@ export default async function AdminPage() {
           })
           .from(wallets)
       : Promise.resolve([{ total: 0 }]),
+    canViewUsers ? listUsers({ limit: 100 }) : Promise.resolve([]),
   ]);
 
   const kesari = approved.filter((s) => s.classification === "KESARI").length;
   const green = approved.filter((s) => s.classification === "GREEN").length;
-  const dairy = approved.filter(
-    (s) => s.shopType === "DAIRY" || s.shopType === "BOTH",
-  ).length;
-  const bakery = approved.filter(
-    (s) => s.shopType === "BAKERY" || s.shopType === "BOTH",
-  ).length;
+
+  const byType = new Map<string, number>();
+  for (const shop of approved) {
+    byType.set(shop.shopType, (byType.get(shop.shopType) ?? 0) + 1);
+  }
+  const topTypes = Array.from(byType.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
 
   return (
     <>
@@ -95,8 +104,9 @@ export default async function AdminPage() {
         />
         <Stat label="Kesari shops" value={kesari} />
         <Stat label="Green shops" value={green} />
-        <Stat label="Dairy shops" value={dairy} />
-        <Stat label="Bakery shops" value={bakery} />
+        {topTypes.map(([type, n]) => (
+          <Stat key={type} label={`${shopTypeLabel(type)} shops`} value={n} />
+        ))}
         <Stat label="Delivered orders" value={orderStats[0].value} />
         <Stat
           label="Delivered revenue"
@@ -123,6 +133,22 @@ export default async function AdminPage() {
         canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
         canClassify={can(user.role, PERMISSIONS.SHOP_SET_CLASSIFICATION)}
       />
+
+      {canViewUsers ? (
+        <Section title={`Users (${userList.length})`}>
+          <UserRoleManager
+            users={userList.map((u) => ({
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              role: u.role,
+              status: u.status,
+            }))}
+            currentUserId={user.id}
+            canSetRole={canSetRole}
+          />
+        </Section>
+      ) : null}
     </>
   );
 }

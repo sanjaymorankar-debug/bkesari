@@ -6,9 +6,10 @@
  *   - Kesari/Green classification is writable only by OPERATOR/ADMIN, and every
  *     change is recorded with who/when/why.
  */
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import type { ShopTypeKey } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import {
   shopClassificationHistory,
@@ -35,7 +36,7 @@ export interface RegisterShopInput {
   pincode: string;
   latitude?: string | null;
   longitude?: string | null;
-  shopType: "DAIRY" | "BAKERY" | "BOTH";
+  shopType: ShopTypeKey;
   logoUrl?: string | null;
   photos?: string[];
   openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
@@ -217,6 +218,71 @@ export async function setShopStatus(
   return updated;
 }
 
+/**
+ * Editable subset of a shop's own details — name/contact/address, shop type,
+ * opening hours ("shop time"), delivery settings. Status and classification
+ * are deliberately excluded: those stay operator/admin-only (§8, §10).
+ */
+export interface UpdateShopInput {
+  name?: string;
+  ownerName?: string;
+  phone?: string;
+  email?: string | null;
+  addressLine1?: string;
+  addressLine2?: string | null;
+  area?: string | null;
+  city?: string;
+  state?: string | null;
+  pincode?: string;
+  latitude?: string | null;
+  longitude?: string | null;
+  shopType?: ShopTypeKey;
+  logoUrl?: string | null;
+  photos?: string[];
+  openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
+  deliveryAvailable?: boolean;
+  deliveryFeePaise?: number;
+  freeDeliveryAbovePaise?: number | null;
+  description?: string | null;
+}
+
+/** Updates a shop's own editable details, e.g. opening hours (§9 shop time). */
+export async function updateShop(
+  shopId: string,
+  input: UpdateShopInput,
+  actor: { id: string; role: UserRole },
+): Promise<Shop> {
+  if (input.pincode && !/^\d{6}$/.test(input.pincode)) {
+    throw validationFailed("PIN code must be exactly 6 digits.");
+  }
+  if (input.phone && !/^[6-9]\d{9}$/.test(input.phone)) {
+    throw validationFailed("Enter a valid 10-digit Indian mobile number.");
+  }
+
+  const [current] = await db
+    .select()
+    .from(shops)
+    .where(and(eq(shops.id, shopId), isNull(shops.deletedAt)));
+  if (!current) throw notFound("Shop");
+
+  const [updated] = await db
+    .update(shops)
+    .set({ ...input, updatedAt: new Date() })
+    .where(eq(shops.id, shopId))
+    .returning();
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SHOP_UPDATED,
+    entityType: "shop",
+    entityId: shopId,
+    previousValue: { openingHours: current.openingHours, shopType: current.shopType },
+    newValue: { openingHours: updated.openingHours, shopType: updated.shopType },
+  });
+  return updated;
+}
+
 /* ------------------------------------------------------ classification */
 
 /**
@@ -330,7 +396,7 @@ export interface ShopSearchFilters {
   city?: string;
   area?: string;
   pincode?: string;
-  shopType?: "DAIRY" | "BAKERY" | "BOTH";
+  shopType?: ShopTypeKey;
   classification?: Classification;
   deliveryOnly?: boolean;
   limit?: number;
@@ -366,11 +432,8 @@ export async function searchShops(
   if (filters.deliveryOnly) {
     conditions.push(eq(shops.deliveryAvailable, true));
   }
-  // A DAIRY filter must also match BOTH shops, since they sell dairy too.
-  if (filters.shopType && filters.shopType !== "BOTH") {
-    conditions.push(inArray(shops.shopType, [filters.shopType, "BOTH"]));
-  } else if (filters.shopType === "BOTH") {
-    conditions.push(eq(shops.shopType, "BOTH"));
+  if (filters.shopType) {
+    conditions.push(eq(shops.shopType, filters.shopType));
   }
 
   return db

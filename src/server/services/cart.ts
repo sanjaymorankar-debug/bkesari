@@ -21,6 +21,7 @@ import {
   products,
   shopProducts,
   shops,
+  type Department,
   type Shop,
 } from "@/server/db/schema";
 import { assertOnlinePurchasable, isOnlinePurchasable } from "./catalogue";
@@ -30,7 +31,7 @@ export interface CartLine {
   shopProductId: string;
   productName: string;
   categoryName: string;
-  department: "DAIRY" | "BAKERY";
+  department: Department;
   unit: string;
   unitSizeMilli: number;
   imageUrl: string | null;

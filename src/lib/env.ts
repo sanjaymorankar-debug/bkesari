@@ -75,9 +75,31 @@ export function isPaymentGatewayLive(): boolean {
   return Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
 }
 
+/**
+ * Emails that are always bootstrapped to ADMIN on first sign-in, regardless of
+ * environment configuration. Kept in addition to (not instead of)
+ * BOOTSTRAP_ADMIN_EMAILS so deployments can grant further admins via env
+ * without code changes.
+ */
+const PERMANENT_BOOTSTRAP_ADMIN_EMAILS = [
+  "agtcipl@gmail.com",
+  "sanjaymoranar@gmail.com",
+] as const;
+
+/** Just the permanent list, lower-cased — used for self-healing role checks. */
+export function permanentBootstrapAdminEmails(): readonly string[] {
+  return PERMANENT_BOOTSTRAP_ADMIN_EMAILS.map((e) => e.toLowerCase());
+}
+
 export function bootstrapAdminEmails(): string[] {
-  return (getEnv().BOOTSTRAP_ADMIN_EMAILS ?? "")
+  const fromEnv = (getEnv().BOOTSTRAP_ADMIN_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+  return Array.from(
+    new Set([
+      ...PERMANENT_BOOTSTRAP_ADMIN_EMAILS.map((e) => e.toLowerCase()),
+      ...fromEnv,
+    ]),
+  );
 }
