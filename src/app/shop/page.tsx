@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ExcelPriceUpload } from "@/components/excel-price-upload";
+import { PendingPriceApprovals } from "@/components/pending-price-approvals";
+import { RegistrationPanel } from "@/components/registration-panel";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
 import {
@@ -23,6 +26,9 @@ import {
   suggestProductsForShopType,
 } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
+import { listPendingForShop } from "@/server/services/price-requests";
+import { getReferralCodeById } from "@/server/services/referrals";
+import { listPaymentsForShop } from "@/server/services/shop-payments";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
 
@@ -51,13 +57,23 @@ export default async function ShopDashboardPage() {
   const shop = shops[0];
   const today = todayIn(getEnv().APP_TIMEZONE);
 
-  const [products, directOrders, subscriptionOrders, suggestions] =
-    await Promise.all([
-      listShopProducts(shop.id),
-      listOrdersForShop(shop.id, { source: "DIRECT", limit: 20 }),
-      listSubscriptionOrdersForShop(shop.id, today),
-      suggestProductsForShopType(shop.shopType),
-    ]);
+  const [
+    products,
+    directOrders,
+    subscriptionOrders,
+    suggestions,
+    pendingApprovals,
+    payments,
+    referral,
+  ] = await Promise.all([
+    listShopProducts(shop.id),
+    listOrdersForShop(shop.id, { source: "DIRECT", limit: 20 }),
+    listSubscriptionOrdersForShop(shop.id, today),
+    suggestProductsForShopType(shop.shopType),
+    listPendingForShop(shop.id),
+    listPaymentsForShop(shop.id),
+    shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
+  ]);
 
   const alreadyListed = new Set(products.map((p) => p.productId));
   const availableToAdd = suggestions.filter((p) => !alreadyListed.has(p.id));
@@ -168,6 +184,67 @@ export default async function ShopDashboardPage() {
           </Card>
         )}
       </section>
+
+      {/* §2.4 — the owner's veto sits above the catalogue, because an operator's
+          proposal is the thing most likely to need action on any given visit. */}
+      {pendingApprovals.length > 0 ? (
+        <section className="mb-8">
+          <h2 className="mb-3 text-lg font-semibold text-ink-900">
+            Price updates awaiting your approval ({pendingApprovals.length})
+          </h2>
+          <PendingPriceApprovals
+            rows={pendingApprovals.map((r) => ({
+              id: r.id,
+              productName: r.productName,
+              productCode: r.productCode,
+              unit: r.unit,
+              priceType: r.priceType,
+              previousPricePaise: r.previousPricePaise,
+              proposedPricePaise: r.proposedPricePaise,
+              source: r.source,
+              createdAt: r.createdAt.toISOString(),
+            }))}
+          />
+        </section>
+      ) : null}
+
+      <div className="mb-8">
+        <RegistrationPanel
+          details={{
+            registrationNumber: shop.registrationNumber,
+            registrationDate: shop.registrationDate,
+            shopName: shop.name,
+            ownerName: shop.ownerName,
+            phone: shop.phone,
+            email: shop.email,
+            address: [shop.addressLine1, shop.area, shop.city, shop.pincode]
+              .filter(Boolean)
+              .join(", "),
+            shopType: shop.shopType,
+            classification: shop.classification,
+            status: shop.status,
+            referralCode: referral?.code ?? null,
+            registrationFeePaise: shop.registrationFeePaise,
+            amountPaidPaise: shop.amountPaidPaise,
+            feePaymentStatus: shop.feePaymentStatus,
+          }}
+          payments={payments.map((p) => ({
+            id: p.id,
+            reference: p.reference,
+            paymentType: p.paymentType,
+            amountPaise: p.amountPaise,
+            method: p.method,
+            transactionId: p.transactionId,
+            paidAt: p.paidAt.toISOString(),
+            note: p.note,
+            receiptUrl: p.receiptUrl,
+          }))}
+        />
+      </div>
+
+      <div className="mb-8">
+        <ExcelPriceUpload shopId={shop.id} appliesImmediately />
+      </div>
 
       <div className="mb-8">
         <ShopSettingsForm shopId={shop.id} initialHours={shop.openingHours} />

@@ -6,22 +6,26 @@
  *   - Kesari/Green classification is writable only by OPERATOR/ADMIN, and every
  *     change is recorded with who/when/why.
  */
-import { and, asc, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import {
+  referralCodes,
   shopClassificationHistory,
   shops,
   users,
   type Classification,
+  type FeePaymentStatus,
   type Shop,
   type ShopStatus,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { uniqueSlug } from "./catalogue";
+import { attributeShopToCode } from "./referrals";
+import { resolveFeeForNewRegistration } from "./registration-fees";
 
 export interface RegisterShopInput {
   name: string;
@@ -44,6 +48,18 @@ export interface RegisterShopInput {
   deliveryFeePaise?: number;
   freeDeliveryAbovePaise?: number | null;
   description?: string | null;
+
+  /* ------------------------------------------- operator-only fields (§4.1) */
+  /**
+   * Register the shop on behalf of this user instead of the caller. Honoured
+   * only when `privileged` is set — a customer registering their own shop can
+   * never populate it, which is what stops a shop being planted on someone else.
+   */
+  ownerId?: string;
+  /** Overrides the fee snapshot taken from the active schedule. */
+  registrationFeePaise?: number;
+  referralCode?: string | null;
+  registrationDate?: string | null;
 }
 
 /**
@@ -54,6 +70,13 @@ export interface RegisterShopInput {
 export async function registerShop(
   input: RegisterShopInput,
   actor: { id: string; role: UserRole },
+  /**
+   * Set when the caller holds SHOP_REGISTRATION_MANAGE. Only then are the
+   * operator-only fields (owner, fee override, referral code) honoured; for a
+   * self-service registration they are ignored entirely rather than rejected,
+   * so a crafted request body cannot escalate.
+   */
+  options: { privileged?: boolean } = {},
 ): Promise<Shop> {
   if (!/^\d{6}$/.test(input.pincode)) {
     throw validationFailed("PIN code must be exactly 6 digits.");
@@ -62,10 +85,39 @@ export async function registerShop(
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
   }
 
+  const privileged = options.privileged === true;
+  const ownerId = privileged && input.ownerId ? input.ownerId : actor.id;
+
+  if (privileged && input.ownerId) {
+    const owner = await db.query.users.findFirst({
+      where: eq(users.id, input.ownerId),
+      columns: { id: true },
+    });
+    if (!owner) throw notFound("Owner");
+  }
+
+  // The fee is SNAPSHOTTED here (§12): a later change to the schedule must
+  // never alter what this shop was charged.
+  const scheduled = await resolveFeeForNewRegistration();
+  const registrationFeePaise =
+    privileged && input.registrationFeePaise !== undefined
+      ? input.registrationFeePaise
+      : scheduled.amountPaise;
+
+  if (registrationFeePaise < 0 || !Number.isInteger(registrationFeePaise)) {
+    throw validationFailed("Registration fee must be a whole number of paise.");
+  }
+
   const [shop] = await db
     .insert(shops)
     .values({
-      ownerId: actor.id,
+      ownerId,
+      registrationDate:
+        (privileged ? input.registrationDate : null) ??
+        new Date().toISOString().slice(0, 10),
+      registrationFeePaise,
+      registrationFeeId: scheduled.feeId,
+      feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
       name: input.name.trim(),
       slug: uniqueSlug(input.name),
       ownerName: input.ownerName.trim(),
@@ -93,13 +145,23 @@ export async function registerShop(
     })
     .returning();
 
-  // Registering a shop promotes a plain customer to SHOP_OWNER. Operators and
-  // admins keep their higher role.
-  if (actor.role === "CUSTOMER") {
+  // Registering a shop promotes a plain customer to SHOP_OWNER — whether they
+  // registered it themselves or an operator registered it for them. Operators
+  // and admins keep their higher role.
+  const [owner] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, ownerId))
+    .limit(1);
+  if (owner?.role === "CUSTOMER") {
     await db
       .update(users)
       .set({ role: "SHOP_OWNER", updatedAt: new Date() })
-      .where(eq(users.id, actor.id));
+      .where(eq(users.id, ownerId));
+  }
+
+  if (privileged && input.referralCode) {
+    await attributeShopToCode(shop.id, input.referralCode, actor);
   }
 
   await recordAudit({
@@ -108,9 +170,89 @@ export async function registerShop(
     action: AUDIT_ACTIONS.SHOP_REGISTERED,
     entityType: "shop",
     entityId: shop.id,
-    newValue: { name: shop.name, shopType: shop.shopType },
+    newValue: {
+      name: shop.name,
+      shopType: shop.shopType,
+      ownerId,
+      registrationNumber: shop.registrationNumber,
+      registrationFeePaise: shop.registrationFeePaise,
+      onBehalf: ownerId !== actor.id,
+    },
   });
   return shop;
+}
+
+/**
+ * Updates the administrative registration fields the owner may read but never
+ * write (§2.5). Requires SHOP_REGISTRATION_MANAGE.
+ *
+ * The fee is intentionally editable here — an operator correcting a
+ * mis-recorded fee is legitimate — but every change is audited, and it never
+ * rewrites payments already recorded against the shop.
+ */
+export async function updateShopRegistration(
+  shopId: string,
+  patch: {
+    registrationFeePaise?: number;
+    registrationDate?: string | null;
+    feePaymentStatus?: FeePaymentStatus;
+    referralCode?: string | null;
+  },
+  actor: { id: string; role: UserRole },
+): Promise<Shop> {
+  const current = await db.query.shops.findFirst({
+    where: and(eq(shops.id, shopId), isNull(shops.deletedAt)),
+  });
+  if (!current) throw notFound("Shop");
+
+  if (
+    patch.registrationFeePaise !== undefined &&
+    (!Number.isInteger(patch.registrationFeePaise) ||
+      patch.registrationFeePaise < 0)
+  ) {
+    throw validationFailed("Registration fee must be a whole number of paise.");
+  }
+
+  const [updated] = await db
+    .update(shops)
+    .set({
+      ...(patch.registrationFeePaise !== undefined
+        ? { registrationFeePaise: patch.registrationFeePaise }
+        : {}),
+      ...(patch.registrationDate !== undefined
+        ? { registrationDate: patch.registrationDate }
+        : {}),
+      ...(patch.feePaymentStatus !== undefined
+        ? { feePaymentStatus: patch.feePaymentStatus }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(shops.id, shopId))
+    .returning();
+
+  if (patch.referralCode) {
+    await attributeShopToCode(shopId, patch.referralCode, actor);
+  }
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SHOP_REGISTRATION_UPDATED,
+    entityType: "shop",
+    entityId: shopId,
+    previousValue: {
+      registrationFeePaise: current.registrationFeePaise,
+      registrationDate: current.registrationDate,
+      feePaymentStatus: current.feePaymentStatus,
+    },
+    newValue: {
+      registrationFeePaise: updated.registrationFeePaise,
+      registrationDate: updated.registrationDate,
+      feePaymentStatus: updated.feePaymentStatus,
+      referralCode: patch.referralCode ?? null,
+    },
+  });
+  return updated;
 }
 
 /* ------------------------------------------------------------- approval */
@@ -443,6 +585,98 @@ export async function searchShops(
     .orderBy(asc(shops.name))
     .limit(Math.min(filters.limit ?? 24, 100))
     .offset(filters.offset ?? 0);
+}
+
+export interface AdminShopFilters {
+  query?: string;
+  status?: ShopStatus;
+  shopType?: ShopTypeKey;
+  classification?: Classification;
+  feePaymentStatus?: FeePaymentStatus;
+  /** Exact registration fee, e.g. "shops where fee = ₹5,000" (§13). */
+  registrationFeePaise?: number;
+  registrationFeeMinPaise?: number;
+  registrationFeeMaxPaise?: number;
+  /** "shops where amount paid < registration fee" (§13). */
+  underpaidOnly?: boolean;
+  referralCode?: string;
+  registeredFrom?: string;
+  registeredTo?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Administrative shop search (§13).
+ *
+ * Distinct from `searchShops` on purpose: that one is the *public* storefront
+ * search and must only ever return APPROVED shops. This one spans every status
+ * and exposes financial columns, so it is reachable only behind
+ * REPORT_VIEW_OPERATIONAL / SHOP_REGISTRATION_MANAGE.
+ */
+export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
+  (Shop & { referralCode: string | null })[]
+> {
+  const conditions = [isNull(shops.deletedAt)];
+
+  if (filters.query) {
+    const term = `%${filters.query}%`;
+    conditions.push(
+      or(
+        ilike(shops.name, term),
+        ilike(shops.ownerName, term),
+        ilike(shops.phone, term),
+        ilike(shops.registrationNumber, term),
+        ilike(shops.city, term),
+      )!,
+    );
+  }
+  if (filters.status) conditions.push(eq(shops.status, filters.status));
+  if (filters.shopType) conditions.push(eq(shops.shopType, filters.shopType));
+  if (filters.classification) {
+    conditions.push(eq(shops.classification, filters.classification));
+  }
+  if (filters.feePaymentStatus) {
+    conditions.push(eq(shops.feePaymentStatus, filters.feePaymentStatus));
+  }
+  if (filters.registrationFeePaise !== undefined) {
+    conditions.push(eq(shops.registrationFeePaise, filters.registrationFeePaise));
+  }
+  if (filters.registrationFeeMinPaise !== undefined) {
+    conditions.push(
+      gte(shops.registrationFeePaise, filters.registrationFeeMinPaise),
+    );
+  }
+  if (filters.registrationFeeMaxPaise !== undefined) {
+    conditions.push(
+      lte(shops.registrationFeePaise, filters.registrationFeeMaxPaise),
+    );
+  }
+  if (filters.underpaidOnly) {
+    conditions.push(
+      sql`${shops.amountPaidPaise} < COALESCE(${shops.registrationFeePaise}, 0)`,
+    );
+  }
+  if (filters.registeredFrom) {
+    conditions.push(gte(shops.registrationDate, filters.registeredFrom));
+  }
+  if (filters.registeredTo) {
+    conditions.push(lte(shops.registrationDate, filters.registeredTo));
+  }
+  if (filters.referralCode) {
+    conditions.push(ilike(referralCodes.code, filters.referralCode));
+  }
+
+  const rows = await db
+    .select({ shop: shops, referralCode: referralCodes.code })
+    .from(shops)
+    .leftJoin(referralCodes, eq(referralCodes.id, shops.referralCodeId))
+    .where(and(...conditions))
+    .orderBy(desc(shops.createdAt))
+    .limit(Math.min(filters.limit ?? 100, 500))
+    .offset(filters.offset ?? 0);
+
+  return rows.map((r) => ({ ...r.shop, referralCode: r.referralCode }));
 }
 
 export async function listShopsByStatus(status: ShopStatus): Promise<Shop[]> {

@@ -35,6 +35,29 @@ export const AUDIT_ACTIONS = {
   SUBSCRIPTION_CANCELLED: "subscription.cancelled",
   SUBSCRIPTION_OVERRIDE_SET: "subscription.override_set",
   SUBSCRIPTION_ORDER_GENERATED: "subscription.order_generated",
+
+  /* --------------------------------------------- price approval workflow (§19) */
+  PRICE_REQUEST_SUBMITTED: "price_request.submitted",
+  PRICE_REQUEST_APPROVED: "price_request.approved",
+  PRICE_REQUEST_REJECTED: "price_request.rejected",
+  PRICE_REQUEST_SUPERSEDED: "price_request.superseded",
+  /** Admin forced a price live without owner approval — always noteworthy. */
+  PRICE_REQUEST_OVERRIDDEN: "price_request.overridden",
+
+  /* ----------------------------------------------------- excel uploads (§19) */
+  EXCEL_UPLOADED: "excel_upload.uploaded",
+  EXCEL_APPLIED: "excel_upload.applied",
+  EXCEL_CANCELLED: "excel_upload.cancelled",
+
+  /* ------------------------------------------ registration, fees, referrals */
+  REGISTRATION_FEE_CHANGED: "registration_fee.changed",
+  SHOP_REGISTRATION_UPDATED: "shop.registration_updated",
+  SHOP_PAYMENT_RECORDED: "shop_payment.recorded",
+  SHOP_PAYMENT_REVERSED: "shop_payment.reversed",
+  REFERRAL_CODE_CREATED: "referral_code.created",
+  REFERRAL_CODE_UPDATED: "referral_code.updated",
+  REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
+  PRODUCT_REMOVED: "shop_product.removed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

@@ -27,6 +27,10 @@ export async function resetDatabase(): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
       audit_logs, notifications,
+      price_update_requests, price_update_batches,
+      excel_upload_items, excel_uploads,
+      shop_payments, referral_redemptions, referral_codes,
+      registration_fee_history, registration_fees,
       subscription_orders, subscription_daily_overrides, subscriptions,
       wallet_transactions, wallets, payments,
       order_status_history, order_items, orders,
@@ -106,6 +110,7 @@ export async function createShop(
     classification?: "KESARI" | "GREEN" | null;
     name?: string;
     deliveryAvailable?: boolean;
+    registrationFeePaise?: number | null;
   } = {},
 ) {
   const name = overrides.name ?? "Test Dairy";
@@ -124,6 +129,10 @@ export async function createShop(
       status: overrides.status ?? "APPROVED",
       classification: overrides.classification ?? "KESARI",
       deliveryAvailable: overrides.deliveryAvailable ?? true,
+      registrationFeePaise:
+        overrides.registrationFeePaise !== undefined
+          ? overrides.registrationFeePaise
+          : 500_000, // ₹5,000 — the fee used throughout the brief's examples
     })
     .returning();
   return shop;

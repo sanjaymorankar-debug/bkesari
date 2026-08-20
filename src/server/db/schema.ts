@@ -134,6 +134,88 @@ export const notificationChannelEnum = pgEnum("notification_channel", [
   "PUSH",
 ]);
 
+/* ------------------------------------- registration, fees & price approval */
+
+/**
+ * Lifecycle of a proposed price change. A request is only ever created for a
+ * change that needs someone else's consent — an owner editing their own price
+ * writes straight through and never lands here.
+ */
+export const priceRequestStatusEnum = pgEnum("price_request_status", [
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  /** A newer request for the same product superseded this one before decision. */
+  "SUPERSEDED",
+  "CANCELLED",
+]);
+
+/** Who originated a price change, for audit and for the owner's review screen. */
+export const priceRequestSourceEnum = pgEnum("price_request_source", [
+  "SHOP_OWNER",
+  "OPERATOR",
+  "ADMIN",
+]);
+
+export const excelUploadTypeEnum = pgEnum("excel_upload_type", [
+  "GOODS",
+  "PRICES",
+]);
+
+/**
+ * An upload is VALIDATED (parsed, previewed, nothing written) before it can be
+ * APPLIED. This two-step is what stops a bad sheet corrupting live prices (§21).
+ */
+export const excelUploadStatusEnum = pgEnum("excel_upload_status", [
+  "VALIDATED",
+  "APPLIED",
+  "CANCELLED",
+  "FAILED",
+]);
+
+/** Per-row verdict from Excel validation. Only VALID/NO_CHANGE rows are applied. */
+export const excelRowStatusEnum = pgEnum("excel_row_status", [
+  "VALID",
+  "NO_CHANGE",
+  "INVALID_PRICE",
+  "DUPLICATE",
+  "NOT_FOUND",
+  "MISSING_FIELD",
+]);
+
+/** Registration-fee settlement state for one shop (§4.2). */
+export const feePaymentStatusEnum = pgEnum("fee_payment_status", [
+  "PENDING",
+  "PARTIALLY_PAID",
+  "PAID",
+  "REFUNDED",
+  "CANCELLED",
+]);
+
+export const shopPaymentTypeEnum = pgEnum("shop_payment_type", [
+  "REGISTRATION_FEE",
+  "RENEWAL",
+  "ADJUSTMENT",
+  "REFUND",
+  "REVERSAL",
+]);
+
+export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
+  "CASH",
+  "UPI",
+  "BANK_TRANSFER",
+  "CARD",
+  "CHEQUE",
+  "RAZORPAY",
+  "OTHER",
+]);
+
+export const referralStatusEnum = pgEnum("referral_status", [
+  "ACTIVE",
+  "INACTIVE",
+  "EXPIRED",
+]);
+
 /* ------------------------------------------------- auth (Auth.js managed) */
 
 export const users = pgTable(
@@ -312,6 +394,36 @@ export const shops = pgTable(
     rejectionReason: text("rejection_reason"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     approvedBy: uuid("approved_by").references(() => users.id),
+
+    /* --------------------------------------------- registration & fee (§4.1) */
+    /**
+     * Human-readable registration id shown to the owner, e.g. BKS-000123.
+     * Allocated by a sequence so concurrent registrations cannot collide.
+     */
+    registrationNumber: text("registration_number")
+      .notNull()
+      .default(sql`'BKS-' || lpad(nextval('shop_registration_seq')::text, 6, '0')`),
+    registrationDate: date("registration_date"),
+    /**
+     * SNAPSHOT of the fee that applied when this shop registered (§12).
+     * Deliberately a copy, not a join: changing the current registration fee
+     * must never rewrite what an existing shop was charged.
+     */
+    registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
+    /** Which fee row was in force at registration — provenance for the snapshot. */
+    registrationFeeId: uuid("registration_fee_id"),
+    referralCodeId: uuid("referral_code_id"),
+    feePaymentStatus: feePaymentStatusEnum("fee_payment_status")
+      .notNull()
+      .default("PENDING"),
+    /**
+     * Running total of settled payments, maintained in the same transaction that
+     * writes shop_payments — same pattern as wallets.balance_paise. Denormalised
+     * so §13's "amount paid < registration fee" filter stays indexable.
+     */
+    amountPaidPaise: bigint("amount_paid_paise", { mode: "number" })
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -322,13 +434,21 @@ export const shops = pgTable(
   },
   (t) => [
     uniqueIndex("shops_slug_unique").on(t.slug),
+    uniqueIndex("shops_registration_number_unique").on(t.registrationNumber),
     index("shops_owner_idx").on(t.ownerId),
     index("shops_status_idx").on(t.status),
     index("shops_city_idx").on(t.city),
     index("shops_pincode_idx").on(t.pincode),
+    index("shops_fee_status_idx").on(t.feePaymentStatus),
+    index("shops_referral_idx").on(t.referralCodeId),
     check(
       "shops_delivery_fee_non_negative",
       sql`${t.deliveryFeePaise} >= 0`,
+    ),
+    check(
+      "shops_registration_amounts_non_negative",
+      sql`(${t.registrationFeePaise} IS NULL OR ${t.registrationFeePaise} >= 0)
+          AND ${t.amountPaidPaise} >= 0`,
     ),
   ],
 );
@@ -389,6 +509,17 @@ export const products = pgTable(
     categoryId: uuid("category_id")
       .notNull()
       .references(() => productCategories.id, { onDelete: "restrict" }),
+    /**
+     * Stable human-readable SKU (P00001…). This — not the uuid — is what the
+     * "Product ID" column of an uploaded sheet is matched against, so operators
+     * can hand-edit spreadsheets without pasting uuids.
+     *
+     * Allocated by a database sequence so callers never have to supply one and
+     * two concurrent inserts cannot collide.
+     */
+    code: text("code")
+      .notNull()
+      .default(sql`'P' || lpad(nextval('product_code_seq')::text, 5, '0')`),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -407,6 +538,7 @@ export const products = pgTable(
   },
   (t) => [
     uniqueIndex("products_slug_unique").on(t.slug),
+    uniqueIndex("products_code_unique").on(t.code),
     index("products_category_idx").on(t.categoryId),
   ],
 );
@@ -962,6 +1094,316 @@ export const notifications = pgTable(
   ],
 );
 
+/* --------------------------------------------------- registration fees */
+
+/**
+ * The registration fee schedule (§12). Rows are append-only: changing the fee
+ * inserts a new row and deactivates the previous one, so the amount in force on
+ * any past date stays recoverable.
+ */
+export const registrationFees = pgTable(
+  "registration_fees",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    currency: text("currency").notNull().default("INR"),
+    effectiveFrom: date("effective_from").notNull(),
+    /** Exactly one row is active at a time; enforced by a partial unique index. */
+    isActive: boolean("is_active").notNull().default(true),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("registration_fees_effective_idx").on(t.effectiveFrom),
+    check("registration_fees_amount_non_negative", sql`${t.amountPaise} >= 0`),
+  ],
+);
+
+/** Immutable trail of fee changes (§12). Never updated, never deleted. */
+export const registrationFeeHistory = pgTable(
+  "registration_fee_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    registrationFeeId: uuid("registration_fee_id")
+      .notNull()
+      .references(() => registrationFees.id, { onDelete: "restrict" }),
+    previousAmountPaise: bigint("previous_amount_paise", { mode: "number" }),
+    newAmountPaise: bigint("new_amount_paise", { mode: "number" }).notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    changedBy: uuid("changed_by")
+      .notNull()
+      .references(() => users.id),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("registration_fee_history_created_idx").on(t.createdAt)],
+);
+
+/* -------------------------------------------------------- referral codes */
+
+export const referralCodes = pgTable(
+  "referral_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stored upper-cased; matching is case-insensitive at the service layer. */
+    code: text("code").notNull(),
+    label: text("label"),
+    /** Optional: the person or partner the referral is credited to. */
+    referrerName: text("referrer_name"),
+    referrerUserId: uuid("referrer_user_id").references(() => users.id),
+    status: referralStatusEnum("status").notNull().default("ACTIVE"),
+    expiresAt: date("expires_at"),
+    note: text("note"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("referral_codes_code_unique").on(t.code),
+    index("referral_codes_status_idx").on(t.status),
+  ],
+);
+
+/** One row per shop that registered under a referral code. */
+export const referralRedemptions = pgTable(
+  "referral_redemptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
+    redeemedBy: uuid("redeemed_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // A shop is attributed to at most one referral code.
+    uniqueIndex("referral_redemptions_shop_unique").on(t.shopId),
+    index("referral_redemptions_code_idx").on(t.referralCodeId),
+  ],
+);
+
+/* --------------------------------------------------------- shop payments */
+
+/**
+ * Registration-fee and renewal payments (§3, §15). Immutable: a correction is a
+ * new REVERSAL/REFUND row pointing at the original, never an UPDATE or DELETE —
+ * the same discipline wallet_transactions uses.
+ */
+export const shopPayments = pgTable(
+  "shop_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Human-readable receipt id shown to the owner, e.g. PAY-2026-000045. */
+    reference: text("reference").notNull(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    paymentType: shopPaymentTypeEnum("payment_type").notNull(),
+    /** Signed: positive for receipts, negative for refunds/reversals. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    currency: text("currency").notNull().default("INR"),
+    method: shopPaymentMethodEnum("method").notNull().default("CASH"),
+    /** Bank/UPI/gateway reference supplied by the operator. */
+    transactionId: text("transaction_id"),
+    /** The fee this payment was settling — snapshot for reconciliation. */
+    feeSnapshotPaise: bigint("fee_snapshot_paise", { mode: "number" }),
+    paidAt: timestamp("paid_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    note: text("note"),
+    receiptUrl: text("receipt_url"),
+    /** Set on a REVERSAL/REFUND row to point at the payment being corrected. */
+    reversalOfId: uuid("reversal_of_id"),
+    recordedBy: uuid("recorded_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_payments_reference_unique").on(t.reference),
+    index("shop_payments_shop_idx").on(t.shopId),
+    index("shop_payments_owner_idx").on(t.ownerId),
+    index("shop_payments_paid_idx").on(t.paidAt),
+    check("shop_payments_amount_non_zero", sql`${t.amountPaise} <> 0`),
+  ],
+);
+
+/* -------------------------------------------------- excel bulk uploads */
+
+/**
+ * One uploaded spreadsheet. Rows land in excel_upload_items first and nothing
+ * touches live prices until the upload is explicitly applied (§8, §24).
+ */
+export const excelUploads = pgTable(
+  "excel_uploads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    uploadType: excelUploadTypeEnum("upload_type").notNull().default("PRICES"),
+    status: excelUploadStatusEnum("status").notNull().default("VALIDATED"),
+    fileName: text("file_name").notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull().default(0),
+    totalRows: integer("total_rows").notNull().default(0),
+    validRows: integer("valid_rows").notNull().default(0),
+    invalidRows: integer("invalid_rows").notNull().default(0),
+    unchangedRows: integer("unchanged_rows").notNull().default(0),
+    duplicateRows: integer("duplicate_rows").notNull().default(0),
+    notFoundRows: integer("not_found_rows").notNull().default(0),
+    /** Counts and headline diffs, rendered on the preview screen. */
+    summary: jsonb("summary").$type<Record<string, unknown>>(),
+    errorMessage: text("error_message"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("excel_uploads_shop_idx").on(t.shopId),
+    index("excel_uploads_uploader_idx").on(t.uploadedBy),
+    index("excel_uploads_created_idx").on(t.createdAt),
+  ],
+);
+
+/** One parsed spreadsheet row, with its validation verdict. */
+export const excelUploadItems = pgTable(
+  "excel_upload_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadId: uuid("upload_id")
+      .notNull()
+      .references(() => excelUploads.id, { onDelete: "cascade" }),
+    rowNumber: integer("row_number").notNull(),
+    /** Verbatim cell values, so an operator can see exactly what they sent. */
+    rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+    productCode: text("product_code"),
+    productName: text("product_name"),
+    unit: text("unit"),
+    parsedPricePaise: bigint("parsed_price_paise", { mode: "number" }),
+    previousPricePaise: bigint("previous_price_paise", { mode: "number" }),
+    matchedShopProductId: uuid("matched_shop_product_id").references(
+      () => shopProducts.id,
+      { onDelete: "set null" },
+    ),
+    status: excelRowStatusEnum("status").notNull(),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("excel_upload_items_row_unique").on(t.uploadId, t.rowNumber),
+    index("excel_upload_items_upload_idx").on(t.uploadId),
+  ],
+);
+
+/* ------------------------------------------------- price update workflow */
+
+/**
+ * A group of proposed price changes submitted together (§2.4, §7). Batching is
+ * what makes "Approve all" / "Reject all" a single decision.
+ */
+export const priceUpdateBatches = pgTable(
+  "price_update_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    source: priceRequestSourceEnum("source").notNull(),
+    submittedBy: uuid("submitted_by")
+      .notNull()
+      .references(() => users.id),
+    excelUploadId: uuid("excel_upload_id").references(() => excelUploads.id, {
+      onDelete: "set null",
+    }),
+    status: priceRequestStatusEnum("status").notNull().default("PENDING"),
+    note: text("note"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("price_update_batches_shop_idx").on(t.shopId),
+    index("price_update_batches_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * One proposed price for one channel of one shop product. The live price in
+ * shop_products is untouched until this row reaches APPROVED (§10).
+ */
+export const priceUpdateRequests = pgTable(
+  "price_update_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => priceUpdateBatches.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id")
+      .notNull()
+      .references(() => shopProducts.id, { onDelete: "cascade" }),
+    priceType: text("price_type", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
+    previousPricePaise: bigint("previous_price_paise", { mode: "number" }),
+    proposedPricePaise: bigint("proposed_price_paise", {
+      mode: "number",
+    }).notNull(),
+    status: priceRequestStatusEnum("status").notNull().default("PENDING"),
+    source: priceRequestSourceEnum("source").notNull(),
+    submittedBy: uuid("submitted_by")
+      .notNull()
+      .references(() => users.id),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("price_update_requests_batch_idx").on(t.batchId),
+    index("price_update_requests_shop_idx").on(t.shopId),
+    index("price_update_requests_status_idx").on(t.status),
+    index("price_update_requests_sp_idx").on(t.shopProductId),
+    check(
+      "price_update_requests_price_non_negative",
+      sql`${t.proposedPricePaise} >= 0`,
+    ),
+  ],
+);
+
 /* ----------------------------------------------------------- audit logs */
 
 export const auditLogs = pgTable(
@@ -1005,7 +1447,25 @@ export type SubscriptionDailyOverride =
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type RegistrationFee = typeof registrationFees.$inferSelect;
+export type ReferralCode = typeof referralCodes.$inferSelect;
+export type ShopPayment = typeof shopPayments.$inferSelect;
+export type ExcelUpload = typeof excelUploads.$inferSelect;
+export type ExcelUploadItem = typeof excelUploadItems.$inferSelect;
+export type PriceUpdateBatch = typeof priceUpdateBatches.$inferSelect;
+export type PriceUpdateRequest = typeof priceUpdateRequests.$inferSelect;
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
+export type PriceRequestStatus =
+  (typeof priceRequestStatusEnum.enumValues)[number];
+export type PriceRequestSource =
+  (typeof priceRequestSourceEnum.enumValues)[number];
+export type FeePaymentStatus = (typeof feePaymentStatusEnum.enumValues)[number];
+export type ShopPaymentType = (typeof shopPaymentTypeEnum.enumValues)[number];
+export type ShopPaymentMethod =
+  (typeof shopPaymentMethodEnum.enumValues)[number];
+export type ExcelRowStatus = (typeof excelRowStatusEnum.enumValues)[number];
+export type ExcelUploadType = (typeof excelUploadTypeEnum.enumValues)[number];
+export type ReferralStatus = (typeof referralStatusEnum.enumValues)[number];
 export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];

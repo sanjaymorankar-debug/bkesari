@@ -1,0 +1,33 @@
+/**
+ * Downloadable price-list template (§9), pre-filled with the shop's catalogue.
+ *
+ * Returns a real .xlsx rather than CSV so the operator edits the same shape of
+ * file the parser expects.
+ */
+import { NextResponse, type NextRequest } from "next/server";
+
+import { route, type RouteContext } from "@/server/api/handler";
+import { requireShopAccess } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
+import { buildTemplate } from "@/server/services/excel";
+
+export const GET = route(
+  async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+    const { id } = await context.params;
+    await requireShopAccess(id, {
+      anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
+    });
+
+    const buffer = await buildTemplate(id);
+
+    return new NextResponse(buffer as ArrayBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="price-list-${id.slice(0, 8)}.xlsx"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  },
+);
