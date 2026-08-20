@@ -45,6 +45,12 @@ const OPERATOR_VISIBLE_ACTIONS: readonly string[] = [
   // DECISION stays admin-only-visible, same treatment as every other
   // admin-gated approval in this list.
   AUDIT_ACTIONS.GLOBAL_PRODUCT_CREATED,
+  // Voucher upload is an OPERATOR capability (§37); manual create/edit
+  // (VOUCHER_CREATED/UPDATED/ACTIVATED/DEACTIVATED) stays admin-only-visible,
+  // matching every other admin-gated action in this list.
+  AUDIT_ACTIONS.VOUCHER_UPLOADED,
+  AUDIT_ACTIONS.VOUCHER_UPLOAD_APPLIED,
+  AUDIT_ACTIONS.VOUCHER_REDEEMED,
 ];
 
 export interface AuditRow {

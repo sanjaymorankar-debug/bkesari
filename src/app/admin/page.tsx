@@ -11,6 +11,8 @@ import { ShopApprovalPanel } from "@/components/shop-approval-panel";
 import { ShopFinanceManager } from "@/components/shop-finance-manager";
 import { Card, PageHeader, Section } from "@/components/ui";
 import { UserRoleManager } from "@/components/user-role-manager";
+import { VoucherManager } from "@/components/voucher-manager";
+import { VoucherUpload } from "@/components/voucher-upload";
 import { formatPaiseCompact } from "@/lib/money";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -37,6 +39,7 @@ import {
 } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
 import { listUsers } from "@/server/services/users";
+import { getVoucherDashboard, listVouchers } from "@/server/services/vouchers";
 
 export const metadata = { title: "Admin" };
 export const dynamic = "force-dynamic";
@@ -60,6 +63,9 @@ export default async function AdminPage() {
   const canManageReferrals = can(user.role, PERMISSIONS.REFERRAL_MANAGE);
   const canDecideAny = can(user.role, PERMISSIONS.PRICE_REQUEST_DECIDE_ANY);
   const canApproveProducts = can(user.role, PERMISSIONS.PRODUCT_APPROVE);
+  const canViewVouchers = can(user.role, PERMISSIONS.VOUCHER_VIEW);
+  const canManageVouchers = can(user.role, PERMISSIONS.VOUCHER_MANAGE);
+  const canUploadVouchers = can(user.role, PERMISSIONS.VOUCHER_UPLOAD);
   const canViewAudit =
     can(user.role, PERMISSIONS.AUDIT_LOG_VIEW) ||
     can(user.role, PERMISSIONS.AUDIT_LOG_VIEW_LIMITED);
@@ -105,6 +111,8 @@ export default async function AdminPage() {
     feeConfig,
     auditRows,
     pendingProducts,
+    voucherList,
+    voucherDashboard,
   ] = await Promise.all([
     searchShopsAdmin({ limit: 500 }),
     getRegistrationFeeReport(),
@@ -116,6 +124,19 @@ export default async function AdminPage() {
       : Promise.resolve([undefined, []] as const),
     canViewAudit ? listAuditLog(user.role, { limit: 100 }) : Promise.resolve([]),
     canApproveProducts ? listPendingProductApprovals() : Promise.resolve([]),
+    canViewVouchers ? listVouchers() : Promise.resolve([]),
+    canViewVouchers
+      ? getVoucherDashboard()
+      : Promise.resolve({
+          totalVouchers: 0,
+          activeVouchers: 0,
+          expiredVouchers: 0,
+          scheduledVouchers: 0,
+          totalRedemptions: 0,
+          totalPromotionalIssuedPaise: 0,
+          totalPromotionalUsedPaise: 0,
+          remainingLiabilityPaise: 0,
+        }),
   ]);
 
   const [activeFee, feeHistory] = feeConfig as [
@@ -341,6 +362,37 @@ export default async function AdminPage() {
             currentUserId={user.id}
             canSetRole={canSetRole}
           />
+        </Section>
+      ) : null}
+
+      {canViewVouchers ? (
+        <Section title="Vouchers">
+          <VoucherManager
+            vouchers={voucherList.map((v) => ({
+              id: v.id,
+              name: v.name,
+              code: v.code,
+              applyMode: v.applyMode,
+              bonusPercent: v.bonusPercent,
+              minimumTopupPaise: v.minimumTopupPaise,
+              maximumBonusPaise: v.maximumBonusPaise,
+              startDate: v.startDate,
+              endDate: v.endDate,
+              usageLimit: v.usageLimit,
+              perCustomerLimit: v.perCustomerLimit,
+              totalBudgetPaise: v.totalBudgetPaise,
+              budgetUsedPaise: v.budgetUsedPaise,
+              redemptionCount: v.redemptionCount,
+              status: v.status,
+            }))}
+            dashboard={voucherDashboard}
+            canManage={canManageVouchers}
+          />
+          {canUploadVouchers ? (
+            <div className="mt-4">
+              <VoucherUpload />
+            </div>
+          ) : null}
         </Section>
       ) : null}
 

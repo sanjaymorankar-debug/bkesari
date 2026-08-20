@@ -16,14 +16,15 @@ import { createTopUpOrder } from "@/server/services/payments";
 const schema = z.object({
   // Paise, so the client cannot smuggle a fractional rupee amount.
   amountPaise: z.number().int().positive(),
+  voucherCode: z.string().max(32).nullish(),
 });
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.WALLET_TOPUP_OWN);
   enforceRateLimit(`payment:${user.id}`, RATE_LIMITS.PAYMENT);
 
-  const { amountPaise } = await parseBody(request, schema);
-  const result = await createTopUpOrder(user.id, amountPaise);
+  const { amountPaise, voucherCode } = await parseBody(request, schema);
+  const result = await createTopUpOrder(user.id, amountPaise, voucherCode);
 
   return ok({
     paymentId: result.payment.id,
@@ -32,5 +33,6 @@ export const POST = route(async (request: NextRequest) => {
     amountPaise: result.amountPaise,
     currency: result.currency,
     mock: result.mock,
+    voucherPreview: result.voucherPreview,
   });
 });

@@ -230,6 +230,46 @@ export const productApprovalStatusEnum = pgEnum("product_approval_status", [
   "REJECTED",
 ]);
 
+/**
+ * Voucher lifecycle (§21). EXPIRED and BUDGET_EXHAUSTED are computed states —
+ * nothing ever writes them directly except the redemption engine flipping
+ * BUDGET_EXHAUSTED the moment a redemption exhausts the budget; expiry is
+ * derived from `end_date` at read time so a voucher is never "deleted",
+ * matching §21's "maintain historical records".
+ */
+export const voucherStatusEnum = pgEnum("voucher_status", [
+  "DRAFT",
+  "ACTIVE",
+  "PAUSED",
+  "EXPIRED",
+  "BUDGET_EXHAUSTED",
+]);
+
+export const voucherApplyModeEnum = pgEnum("voucher_apply_mode", [
+  "CODE",
+  "AUTO_APPLY",
+]);
+
+export const voucherRedemptionStatusEnum = pgEnum("voucher_redemption_status", [
+  "PENDING",
+  "APPLIED",
+  "REVERSED",
+  "REJECTED",
+]);
+
+export const voucherUploadStatusEnum = pgEnum("voucher_upload_status", [
+  "VALIDATED",
+  "APPLIED",
+  "CANCELLED",
+]);
+
+export const voucherUploadRowStatusEnum = pgEnum("voucher_upload_row_status", [
+  "VALID",
+  "DUPLICATE_IN_FILE",
+  "DUPLICATE_EXISTING",
+  "INVALID",
+]);
+
 /* ------------------------------------------------- auth (Auth.js managed) */
 
 export const users = pgTable(
@@ -860,6 +900,13 @@ export const payments = pgTable(
       .default("WALLET_TOPUP"),
     failureReason: text("failure_reason"),
     rawPayload: jsonb("raw_payload"),
+    /**
+     * The voucher code committed to at order-creation time (§19, §32) — read
+     * back at verification rather than re-accepted from the client, so a
+     * caller cannot swap in a better voucher after the price/amount was
+     * already fixed. Null when no voucher was applied.
+     */
+    voucherCode: text("voucher_code"),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -886,6 +933,20 @@ export const wallets = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     balancePaise: bigint("balance_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    /**
+     * The promotional/voucher-funded SLICE of balancePaise — not a second
+     * balance. balancePaise is always customer-funded + promotional; this
+     * column exists so spending priority (§28, promotional-first) and refund
+     * source-preservation (§29) can be computed without re-scanning the
+     * ledger on every purchase. It is maintained atomically alongside
+     * balancePaise inside the same wallet-mutation transaction, so the two
+     * can never drift.
+     */
+    promotionalBalancePaise: bigint("promotional_balance_paise", {
+      mode: "number",
+    })
       .notNull()
       .default(0),
     currency: text("currency").notNull().default("INR"),
@@ -920,6 +981,10 @@ export const wallets = pgTable(
     uniqueIndex("wallets_user_unique").on(t.userId),
     // Last line of defence: a negative balance cannot be persisted, ever.
     check("wallets_balance_non_negative", sql`${t.balancePaise} >= 0`),
+    check(
+      "wallets_promotional_balance_bounded",
+      sql`${t.promotionalBalancePaise} >= 0 AND ${t.promotionalBalancePaise} <= ${t.balancePaise}`,
+    ),
   ],
 );
 
@@ -945,10 +1010,29 @@ export const walletTransactions = pgTable(
       mode: "number",
     }).notNull(),
     newBalancePaise: bigint("new_balance_paise", { mode: "number" }).notNull(),
+    /**
+     * Signed slice of `amountPaise` that moved the PROMOTIONAL balance (§27,
+     * §28, §29). Zero for a plain TOP_UP. Equal to `amountPaise` for a
+     * VOUCHER_BONUS credit. For a debit, the (negative) amount promotional
+     * funds covered — read back on refund so the original customer-funded /
+     * promotional split is restored rather than refunded as one lump sum.
+     */
+    promotionalAmountPaise: bigint("promotional_amount_paise", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
     orderId: uuid("order_id").references(() => orders.id),
     subscriptionId: uuid("subscription_id"),
     paymentId: uuid("payment_id").references(() => payments.id),
     reversalOfId: uuid("reversal_of_id"),
+    /**
+     * voucher_redemptions.id — a plain uuid rather than .references() because
+     * voucher_redemptions is declared later in this file (same rationale as
+     * shops.registration_fee_id above); the FK constraint is added via raw
+     * SQL in the migration once that table exists.
+     */
+    voucherRedemptionId: uuid("voucher_redemption_id"),
     /**
      * UNIQUE. This single index is what makes every wallet mutation safely
      * retryable: a duplicate attempt collides here instead of double-charging.
@@ -975,6 +1059,184 @@ export const walletTransactions = pgTable(
       "wallet_txn_arithmetic",
       sql`${t.newBalancePaise} = ${t.previousBalancePaise} + ${t.amountPaise}`,
     ),
+    // The promotional slice can never exceed, or point the opposite direction
+    // from, the transaction it is a slice of.
+    check(
+      "wallet_txn_promotional_within_amount",
+      sql`(${t.amountPaise} >= 0 AND ${t.promotionalAmountPaise} >= 0 AND ${t.promotionalAmountPaise} <= ${t.amountPaise})
+          OR (${t.amountPaise} < 0 AND ${t.promotionalAmountPaise} <= 0 AND ${t.promotionalAmountPaise} >= ${t.amountPaise})`,
+    ),
+  ],
+);
+
+/* ---------------------------------------------------------- vouchers */
+
+/**
+ * A promotional top-up bonus rule (Part B of the wallet/voucher brief).
+ *
+ * A voucher never touches money the customer paid — it only ever describes
+ * how big a PROMOTIONAL_CREDIT to add alongside a verified TOP_UP. The
+ * percentage/limits here are advisory to the UI; the redemption engine
+ * (services/vouchers.ts) recomputes everything server-side and never trusts a
+ * client-supplied bonus amount (§32).
+ */
+export const vouchers = pgTable(
+  "vouchers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** Stored upper-cased; NULL when applyMode is AUTO_APPLY. */
+    code: text("code"),
+    description: text("description"),
+    termsAndConditions: text("terms_and_conditions"),
+    applyMode: voucherApplyModeEnum("apply_mode").notNull().default("CODE"),
+    /** Basis points would overcomplicate this; whole/fractional percent as numeric. */
+    bonusPercent: bigint("bonus_percent", { mode: "number" }).notNull(),
+    minimumTopupPaise: bigint("minimum_topup_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    maximumBonusPaise: bigint("maximum_bonus_paise", { mode: "number" }),
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date").notNull(),
+    /** NULL = unlimited. */
+    usageLimit: integer("usage_limit"),
+    perCustomerLimit: integer("per_customer_limit").notNull().default(1),
+    /** NULL = unlimited promotional liability. */
+    totalBudgetPaise: bigint("total_budget_paise", { mode: "number" }),
+    /** Running total of bonus paise issued — maintained atomically with every redemption. */
+    budgetUsedPaise: bigint("budget_used_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    redemptionCount: integer("redemption_count").notNull().default(0),
+    status: voucherStatusEnum("status").notNull().default("DRAFT"),
+    /** Free-text scope hook for §26 (category/shop restriction) — unused by
+     *  the engine in this first implementation, which applies vouchers to any
+     *  eligible top-up per the brief's explicit "for the first implementation" scope. */
+    applicableScope: text("applicable_scope"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("vouchers_code_unique").on(t.code),
+    index("vouchers_status_idx").on(t.status),
+    index("vouchers_dates_idx").on(t.startDate, t.endDate),
+    // Upper bound is a sanity ceiling, not the "configured maximum" of §17 —
+    // that is enforced (and can be tightened) in the service layer; this is
+    // the backstop that makes a triple-zero typo impossible to persist.
+    check(
+      "vouchers_bonus_percent_range",
+      sql`${t.bonusPercent} > 0 AND ${t.bonusPercent} <= 100`,
+    ),
+    check("vouchers_minimum_topup_non_negative", sql`${t.minimumTopupPaise} >= 0`),
+    check(
+      "vouchers_maximum_bonus_non_negative",
+      sql`${t.maximumBonusPaise} IS NULL OR ${t.maximumBonusPaise} >= 0`,
+    ),
+    check("vouchers_dates_valid", sql`${t.endDate} >= ${t.startDate}`),
+    check(
+      "vouchers_usage_limit_positive",
+      sql`${t.usageLimit} IS NULL OR ${t.usageLimit} > 0`,
+    ),
+    check("vouchers_per_customer_limit_positive", sql`${t.perCustomerLimit} > 0`),
+    check(
+      "vouchers_budget_non_negative",
+      sql`(${t.totalBudgetPaise} IS NULL OR ${t.totalBudgetPaise} >= 0) AND ${t.budgetUsedPaise} >= 0`,
+    ),
+  ],
+);
+
+/**
+ * One application of a voucher to one top-up (§24). This is the audit trail
+ * AND the enforcement mechanism: the UNIQUE index on (voucher, customer) when
+ * per_customer_limit = 1 — and more generally the row-count check under lock
+ * in the redemption engine — is what makes "prevent duplicate use even under
+ * concurrent requests" (§22) true rather than aspirational.
+ */
+export const voucherRedemptions = pgTable(
+  "voucher_redemptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    voucherId: uuid("voucher_id")
+      .notNull()
+      .references(() => vouchers.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    walletId: uuid("wallet_id")
+      .notNull()
+      .references(() => wallets.id, { onDelete: "restrict" }),
+    paymentId: uuid("payment_id").references(() => payments.id),
+    topupAmountPaise: bigint("topup_amount_paise", { mode: "number" }).notNull(),
+    bonusPercent: bigint("bonus_percent", { mode: "number" }).notNull(),
+    bonusAmountPaise: bigint("bonus_amount_paise", { mode: "number" }).notNull(),
+    status: voucherRedemptionStatusEnum("status").notNull().default("PENDING"),
+    /**
+     * Idempotency anchor: one redemption per payment. A retried/duplicate
+     * verify call for the same payment can never double-apply the bonus.
+     */
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("voucher_redemptions_idempotency_unique").on(t.idempotencyKey),
+    index("voucher_redemptions_voucher_idx").on(t.voucherId),
+    index("voucher_redemptions_user_idx").on(t.userId),
+    check("voucher_redemptions_amounts_non_negative", sql`${t.topupAmountPaise} >= 0 AND ${t.bonusAmountPaise} >= 0`),
+  ],
+);
+
+/** One uploaded voucher spreadsheet (§16), mirroring excel_uploads' two-phase shape. */
+export const voucherUploads = pgTable(
+  "voucher_uploads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    fileName: text("file_name").notNull(),
+    status: voucherUploadStatusEnum("status").notNull().default("VALIDATED"),
+    totalRecords: integer("total_records").notNull().default(0),
+    successfulRecords: integer("successful_records").notNull().default(0),
+    failedRecords: integer("failed_records").notNull().default(0),
+    summary: jsonb("summary").$type<Record<string, unknown>>(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("voucher_uploads_uploader_idx").on(t.uploadedBy)],
+);
+
+export const voucherUploadItems = pgTable(
+  "voucher_upload_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadId: uuid("upload_id")
+      .notNull()
+      .references(() => voucherUploads.id, { onDelete: "cascade" }),
+    rowNumber: integer("row_number").notNull(),
+    rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+    voucherName: text("voucher_name"),
+    voucherCode: text("voucher_code"),
+    status: voucherUploadRowStatusEnum("status").notNull(),
+    errorMessage: text("error_message"),
+    createdVoucherId: uuid("created_voucher_id").references(() => vouchers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("voucher_upload_items_row_unique").on(t.uploadId, t.rowNumber),
+    index("voucher_upload_items_upload_idx").on(t.uploadId),
   ],
 );
 
@@ -1492,6 +1754,14 @@ export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type Wallet = typeof wallets.$inferSelect;
 export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type Voucher = typeof vouchers.$inferSelect;
+export type VoucherRedemption = typeof voucherRedemptions.$inferSelect;
+export type VoucherUpload = typeof voucherUploads.$inferSelect;
+export type VoucherUploadItem = typeof voucherUploadItems.$inferSelect;
+export type VoucherStatus = (typeof voucherStatusEnum.enumValues)[number];
+export type VoucherApplyMode = (typeof voucherApplyModeEnum.enumValues)[number];
+export type VoucherRedemptionStatus =
+  (typeof voucherRedemptionStatusEnum.enumValues)[number];
 export type Subscription = typeof subscriptions.$inferSelect;
 export type SubscriptionDailyOverride =
   typeof subscriptionDailyOverrides.$inferSelect;

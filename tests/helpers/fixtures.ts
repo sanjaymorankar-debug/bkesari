@@ -8,11 +8,13 @@ import { sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import {
+  payments,
   productCategories,
   products,
   shopProducts,
   shops,
   users,
+  vouchers,
   wallets,
   type Department,
   type UserRole,
@@ -31,6 +33,7 @@ export async function resetDatabase(): Promise<void> {
       excel_upload_items, excel_uploads,
       shop_payments, referral_redemptions, referral_codes,
       registration_fee_history, registration_fees,
+      voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
       subscription_orders, subscription_daily_overrides, subscriptions,
       wallet_transactions, wallets, payments,
       order_status_history, order_items, orders,
@@ -204,4 +207,58 @@ export async function createStandardMilkSetup(
     onlineStock: 1000,
   });
   return { customer, wallet, owner, category, product, shop, shopProduct };
+}
+
+/** A minimal real payments row — voucher_redemptions.payment_id is a real FK. */
+export async function createPayment(
+  userId: string,
+  overrides: { amountPaise?: number; status?: "CREATED" | "SUCCESS" } = {},
+) {
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      userId,
+      gatewayOrderId: `mock_order_${uniq()}`,
+      amountPaise: overrides.amountPaise ?? 100_000,
+      status: overrides.status ?? "SUCCESS",
+    })
+    .returning();
+  return payment;
+}
+
+export async function createVoucher(
+  overrides: {
+    name?: string;
+    code?: string;
+    bonusPercent?: number;
+    minimumTopupPaise?: number;
+    maximumBonusPaise?: number | null;
+    startDate?: string;
+    endDate?: string;
+    usageLimit?: number | null;
+    perCustomerLimit?: number;
+    totalBudgetPaise?: number | null;
+    status?: "DRAFT" | "ACTIVE" | "PAUSED" | "EXPIRED" | "BUDGET_EXHAUSTED";
+    createdBy?: string | null;
+  } = {},
+) {
+  const [voucher] = await db
+    .insert(vouchers)
+    .values({
+      name: overrides.name ?? "Test Voucher",
+      code: overrides.code ?? `TEST${uniq().toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+      applyMode: "CODE",
+      bonusPercent: overrides.bonusPercent ?? 10,
+      minimumTopupPaise: overrides.minimumTopupPaise ?? 0,
+      maximumBonusPaise: overrides.maximumBonusPaise ?? null,
+      startDate: overrides.startDate ?? "2020-01-01",
+      endDate: overrides.endDate ?? "2099-12-31",
+      usageLimit: overrides.usageLimit ?? null,
+      perCustomerLimit: overrides.perCustomerLimit ?? 1,
+      totalBudgetPaise: overrides.totalBudgetPaise ?? null,
+      status: overrides.status ?? "ACTIVE",
+      createdBy: overrides.createdBy ?? null,
+    })
+    .returning();
+  return voucher;
 }

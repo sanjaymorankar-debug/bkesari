@@ -64,6 +64,16 @@ export const AUDIT_ACTIONS = {
   PRODUCT_APPROVED: "product.approved",
   PRODUCT_REJECTED: "product.rejected",
   PRODUCT_UPLOAD_NEW: "excel_upload.product_created",
+
+  /* ------------------------------------------------------------- vouchers */
+  VOUCHER_CREATED: "voucher.created",
+  VOUCHER_UPDATED: "voucher.updated",
+  VOUCHER_ACTIVATED: "voucher.activated",
+  VOUCHER_DEACTIVATED: "voucher.deactivated",
+  VOUCHER_REDEEMED: "voucher.redeemed",
+  VOUCHER_REJECTED: "voucher.rejected",
+  VOUCHER_UPLOADED: "voucher_upload.uploaded",
+  VOUCHER_UPLOAD_APPLIED: "voucher_upload.applied",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

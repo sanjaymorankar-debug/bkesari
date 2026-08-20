@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
 import { TOPUP_PRESETS_PAISE, formatPaiseCompact, rupeesToPaise } from "@/lib/money";
+import { openRazorpayCheckout } from "@/lib/razorpay-checkout";
 import type { WalletForecast } from "@/server/services/subscriptions";
 
 interface Transaction {
@@ -16,34 +17,80 @@ interface Transaction {
   createdAt: string;
 }
 
-/** Wallet screen per requirements §19, §20, §24, §37. */
+interface VoucherPreview {
+  code: string;
+  name: string;
+  bonusPercent: number;
+  bonusAmountPaise: number;
+  totalCreditPaise: number;
+}
+
+/** Wallet screen per requirements §19, §20, §24, §37, and Part B (§18–§20). */
 export function WalletView({
   balancePaise,
+  promotionalBalancePaise,
   lowBalanceThresholdPaise,
   todaysDeductionPaise,
   forecast,
   transactions,
+  customerName,
+  customerEmail,
 }: {
   balancePaise: number;
+  promotionalBalancePaise: number;
   lowBalanceThresholdPaise: number;
   todaysDeductionPaise: number;
   forecast: WalletForecast;
   transactions: Transaction[];
+  customerName: string | null;
+  customerEmail: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [custom, setCustom] = useState("");
+  const [voucherCode, setVoucherCode] = useState("");
+  const [voucherPreview, setVoucherPreview] = useState<VoucherPreview | null>(null);
+  const [voucherError, setVoucherError] = useState<string | null>(null);
+  const [voucherBusy, setVoucherBusy] = useState(false);
 
   const isLow = balancePaise < lowBalanceThresholdPaise;
 
+  /** §18: compute and show the bonus before any payment starts. */
+  async function applyVoucher(amountPaise: number) {
+    if (!voucherCode.trim()) {
+      setVoucherError("Enter a voucher code.");
+      return;
+    }
+    setVoucherBusy(true);
+    setVoucherError(null);
+    setVoucherPreview(null);
+    try {
+      const response = await fetch("/api/vouchers/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: voucherCode.trim(), amountPaise }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error?.message ?? "That voucher could not be applied.");
+      }
+      setVoucherPreview(payload);
+    } catch (caught) {
+      setVoucherError(caught instanceof Error ? caught.message : "That voucher could not be applied.");
+    } finally {
+      setVoucherBusy(false);
+    }
+  }
+
   /**
-   * Creates a gateway order then settles it.
+   * Creates a gateway order then collects payment.
    *
-   * In mock mode (no Razorpay credentials) the client asks the server for a
-   * signed confirmation so the full verify-then-credit path still runs. With
-   * live credentials this is where the Razorpay checkout widget opens instead.
+   * Live credentials → opens the real Razorpay Checkout widget and waits for
+   * the customer to pay, then verifies server-side. Mock mode (no Razorpay
+   * credentials — dev/test only) asks the server for a signed confirmation so
+   * the exact same verify-then-credit path still runs end to end.
    */
   async function addMoney(amountPaise: number) {
     setBusy(true);
@@ -51,41 +98,85 @@ export function WalletView({
     setNotice(null);
 
     try {
+      const appliedVoucherCode =
+        voucherPreview && voucherPreview.totalCreditPaise - voucherPreview.bonusAmountPaise === amountPaise
+          ? voucherPreview.code
+          : null;
+
       const createResponse = await fetch("/api/wallet/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amountPaise }),
+        body: JSON.stringify({ amountPaise, voucherCode: appliedVoucherCode }),
       });
       const intent = await createResponse.json();
       if (!createResponse.ok) {
         throw new Error(intent?.error?.message ?? "Could not start the payment.");
       }
 
-      if (!intent.mock) {
-        setNotice(
-          "Razorpay checkout would open here. Configure RAZORPAY_KEY_ID to complete live payments.",
-        );
+      if (intent.mock) {
+        const settleResponse = await fetch("/api/dev/settle-topup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gatewayOrderId: intent.gatewayOrderId }),
+        });
+        const settled = await settleResponse.json();
+        if (!settleResponse.ok) {
+          throw new Error(settled?.error?.message ?? "Payment could not be verified.");
+        }
+        setNotice(topUpSuccessMessage(amountPaise, settled.voucherBonusPaise));
+        setCustom("");
+        setVoucherCode("");
+        setVoucherPreview(null);
+        router.refresh();
         return;
       }
 
-      const settleResponse = await fetch("/api/dev/settle-topup", {
+      // Live gateway: open the actual Razorpay widget and wait for the
+      // customer to complete (or cancel) payment.
+      const response = await openRazorpayCheckout({
+        key: intent.keyId,
+        amount: intent.amountPaise,
+        currency: intent.currency,
+        order_id: intent.gatewayOrderId,
+        name: "Dairy & Bakery",
+        description: "Wallet top-up",
+        prefill: {
+          name: customerName ?? undefined,
+          email: customerEmail ?? undefined,
+        },
+        theme: { color: "#e85d2c" },
+      });
+      const verifyResponse = await fetch("/api/wallet/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gatewayOrderId: intent.gatewayOrderId }),
+        body: JSON.stringify({
+          razorpay_order_id: response.razorpay_order_id,
+          razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_signature: response.razorpay_signature,
+        }),
       });
-      const settled = await settleResponse.json();
-      if (!settleResponse.ok) {
-        throw new Error(settled?.error?.message ?? "Payment could not be verified.");
+      const verified = await verifyResponse.json();
+      if (!verifyResponse.ok) {
+        throw new Error(verified?.error?.message ?? "Payment could not be verified.");
       }
 
-      setNotice(`${formatPaiseCompact(amountPaise)} added to your wallet.`);
+      setNotice(topUpSuccessMessage(amountPaise, verified.voucherBonusPaise));
       setCustom("");
+      setVoucherCode("");
+      setVoucherPreview(null);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Something went wrong.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function topUpSuccessMessage(amountPaise: number, bonusPaise: number): string {
+    if (bonusPaise > 0) {
+      return `${formatPaiseCompact(amountPaise)} added, plus a ${formatPaiseCompact(bonusPaise)} voucher bonus.`;
+    }
+    return `${formatPaiseCompact(amountPaise)} added to your wallet.`;
   }
 
   function addCustom() {
@@ -101,10 +192,17 @@ export function WalletView({
     <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
       <div className="space-y-6">
         <Card className="p-6">
-          <p className="text-sm text-ink-500">Current balance</p>
+          <p className="text-sm text-ink-500">Available balance</p>
           <p className="mt-1 text-4xl font-bold text-ink-900">
             <Money paise={balancePaise} />
           </p>
+          {promotionalBalancePaise > 0 ? (
+            <p className="mt-1 text-xs text-ink-500">
+              <Money paise={balancePaise - promotionalBalancePaise} /> from your
+              payments · <Money paise={promotionalBalancePaise} /> voucher
+              credit
+            </p>
+          ) : null}
 
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg bg-cream-50 p-3">
@@ -206,28 +304,79 @@ export function WalletView({
                 key={paise}
                 variant="secondary"
                 disabled={busy}
-                onClick={() => addMoney(paise)}
+                onClick={() => {
+                  setCustom(String(paise / 100));
+                  setVoucherPreview(null);
+                }}
               >
                 {formatPaiseCompact(paise)}
               </Button>
             ))}
           </div>
 
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3">
             <input
               type="number"
               min={1}
               inputMode="numeric"
-              placeholder="Custom ₹"
-              aria-label="Custom amount in rupees"
+              placeholder="Amount (₹)"
+              aria-label="Amount in rupees"
               value={custom}
-              onChange={(e) => setCustom(e.target.value)}
+              onChange={(e) => {
+                setCustom(e.target.value);
+                setVoucherPreview(null);
+              }}
               className={inputClass}
             />
-            <Button disabled={busy || !custom} onClick={addCustom}>
-              Add
+          </div>
+
+          <div className="mt-2 flex gap-2">
+            <input
+              value={voucherCode}
+              onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+              placeholder="Voucher code (optional)"
+              aria-label="Voucher code"
+              className={inputClass}
+            />
+            <Button
+              variant="secondary"
+              disabled={voucherBusy || !custom}
+              onClick={() => {
+                const rupees = Number(custom);
+                if (!Number.isFinite(rupees) || rupees <= 0) {
+                  setVoucherError("Enter an amount first.");
+                  return;
+                }
+                applyVoucher(rupeesToPaise(rupees));
+              }}
+            >
+              Apply
             </Button>
           </div>
+          {voucherError ? (
+            <p className="mt-1 text-xs text-red-600">{voucherError}</p>
+          ) : null}
+          {voucherPreview ? (
+            <div className="mt-2 rounded-lg bg-leaf-50 p-3 text-sm">
+              <p className="font-medium text-leaf-800">{voucherPreview.name}</p>
+              <div className="mt-1 flex justify-between text-ink-700">
+                <span>Top-up</span>
+                <Money paise={voucherPreview.totalCreditPaise - voucherPreview.bonusAmountPaise} />
+              </div>
+              <div className="flex justify-between text-leaf-700">
+                <span>Voucher bonus ({voucherPreview.bonusPercent}%)</span>
+                <Money paise={voucherPreview.bonusAmountPaise} />
+              </div>
+              <div className="mt-1 flex justify-between border-t border-leaf-200 pt-1 font-semibold text-ink-900">
+                <span>Total wallet credit</span>
+                <Money paise={voucherPreview.totalCreditPaise} />
+              </div>
+            </div>
+          ) : null}
+
+          <Button className="mt-3 w-full" disabled={busy || !custom} onClick={addCustom}>
+            {busy ? "Processing…" : "Proceed to payment"}
+          </Button>
 
           {notice ? (
             <div className="mt-3">

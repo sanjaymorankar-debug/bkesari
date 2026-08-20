@@ -106,7 +106,7 @@ function normaliseHeader(raw: string): string | null {
  * Excel. We never evaluate formulas, but these values can be echoed back into a
  * generated sheet, so they are defanged at the boundary.
  */
-function sanitiseCell(value: unknown): string {
+export function sanitiseCell(value: unknown): string {
   if (value == null) return "";
   const text = String(
     typeof value === "object" && "text" in (value as Record<string, unknown>)

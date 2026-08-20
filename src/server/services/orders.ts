@@ -37,7 +37,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct } from "./catalogue";
-import { applyWalletMutation } from "./wallet";
+import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 
 /* ------------------------------------------------------- state machine */
 
@@ -390,14 +390,17 @@ export async function cancelOrder(
     });
 
     if (wasPaid) {
-      await applyWalletMutation(
+      // Preserves the original customer-funded / promotional split (§29) —
+      // does not simply credit order.totalPaise as one lump customer-funded
+      // sum, which would silently convert any promotional credit the order
+      // used into real, withdrawable-feeling money.
+      await refundOriginalDebit(
         {
           userId: order.userId,
-          amountPaise: order.totalPaise,
-          type: "REFUND",
+          referenceType: "orderId",
+          referenceId: order.id,
           idempotencyKey: `refund:order:${order.id}`,
           description: `Refund for cancelled order ${order.orderNumber}`,
-          orderId: order.id,
           createdBy: actor.id,
         },
         tx,

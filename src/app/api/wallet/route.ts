@@ -29,6 +29,7 @@ export const GET = route(async () => {
     wallet: {
       id: wallet.id,
       balancePaise: wallet.balancePaise,
+      promotionalBalancePaise: wallet.promotionalBalancePaise,
       currency: wallet.currency,
       lowBalanceThresholdPaise: wallet.lowBalanceThresholdPaise,
       autoRechargeEnabled: wallet.autoRechargeEnabled,

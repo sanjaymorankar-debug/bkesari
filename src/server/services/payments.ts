@@ -15,7 +15,7 @@
  */
 import crypto from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getEnv, isPaymentGatewayLive } from "@/lib/env";
 import {
@@ -28,7 +28,8 @@ import { db } from "@/server/db";
 import { payments, type Payment } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
-import { applyWalletMutation } from "./wallet";
+import { getOrCreateWallet, applyWalletMutation } from "./wallet";
+import { previewVoucher, redeemVoucher } from "./vouchers";
 
 /** Razorpay's floor is ₹1. */
 const MIN_TOPUP_PAISE = 100;
@@ -43,11 +44,20 @@ export interface CreateTopUpResult {
   amountPaise: number;
   currency: string;
   mock: boolean;
+  /** Set only when a voucher code was supplied and validated (§18 preview). */
+  voucherPreview: {
+    code: string;
+    name: string;
+    bonusPercent: number;
+    bonusAmountPaise: number;
+    totalCreditPaise: number;
+  } | null;
 }
 
 export async function createTopUpOrder(
   userId: string,
   amountPaise: number,
+  voucherCode?: string | null,
 ): Promise<CreateTopUpResult> {
   if (!Number.isInteger(amountPaise)) {
     throw validationFailed("Amount must be a whole number of paise.");
@@ -58,6 +68,14 @@ export async function createTopUpOrder(
   if (amountPaise > MAX_TOPUP_PAISE) {
     throw validationFailed("The maximum top-up is ₹1,00,000.");
   }
+
+  // Validated and computed HERE, at order-creation time, then the code (not
+  // the bonus figure) is stored on the payment row. Verification re-derives
+  // the bonus from the voucher and the payment's own amount — the client
+  // never gets to supply a bonus amount at any point (§32).
+  const voucherPreview = voucherCode
+    ? await previewVoucher(voucherCode, amountPaise, userId)
+    : null;
 
   const env = getEnv();
   const live = isPaymentGatewayLive();
@@ -76,6 +94,7 @@ export async function createTopUpOrder(
       currency: "INR",
       status: "CREATED",
       purpose: "WALLET_TOPUP",
+      voucherCode: voucherPreview?.code ?? null,
     })
     .returning();
 
@@ -86,6 +105,15 @@ export async function createTopUpOrder(
     amountPaise,
     currency: "INR",
     mock: !live,
+    voucherPreview: voucherPreview
+      ? {
+          code: voucherPreview.code!,
+          name: voucherPreview.name,
+          bonusPercent: voucherPreview.bonusPercent,
+          bonusAmountPaise: voucherPreview.bonusAmountPaise,
+          totalCreditPaise: voucherPreview.totalCreditPaise,
+        }
+      : null,
   };
 }
 
@@ -101,6 +129,7 @@ export interface VerifyTopUpResult {
   balancePaise: number;
   /** True when this callback had already been processed. */
   alreadyProcessed: boolean;
+  voucherBonusPaise: number;
 }
 
 /**
@@ -122,7 +151,8 @@ export async function verifyAndCreditTopUp(
     throw paymentVerificationFailed("This payment does not belong to you.");
   }
 
-  // Replay: already verified. Return the existing state rather than re-crediting.
+  // Replay: already verified — including by the webhook, which may have won
+  // the race. Return the existing state rather than re-crediting.
   if (payment.status === "SUCCESS") {
     const wallet = await db.query.wallets.findFirst({
       where: (w, { eq: equals }) => equals(w.userId, input.userId),
@@ -131,6 +161,7 @@ export async function verifyAndCreditTopUp(
       payment,
       balancePaise: wallet?.balancePaise ?? 0,
       alreadyProcessed: true,
+      voucherBonusPaise: 0,
     };
   }
 
@@ -155,54 +186,166 @@ export async function verifyAndCreditTopUp(
     throw paymentVerificationFailed();
   }
 
+  return finalizeVerifiedPayment(payment, {
+    gatewayPaymentId: input.gatewayPaymentId,
+    gatewaySignature: input.signature,
+  });
+}
+
+/**
+ * Marks a payment SUCCESS and credits the wallet — the one code path both
+ * `verifyAndCreditTopUp` (client-invoked, checkout-signature verified) and
+ * the Razorpay webhook (server-to-server, webhook-signature verified) funnel
+ * into once THEIR OWN authentication has passed. Whichever one reaches here
+ * first wins; the other's replay is absorbed by the SUCCESS-status check in
+ * its own caller, or by the UNIQUE index on `payments.gateway_payment_id` /
+ * the wallet idempotency key if both race past that check simultaneously.
+ */
+async function finalizeVerifiedPayment(
+  payment: Payment,
+  gateway: { gatewayPaymentId: string; gatewaySignature: string | null },
+): Promise<VerifyTopUpResult> {
   // Mark verified. The UNIQUE index on gateway_payment_id means a concurrent
   // duplicate callback fails here rather than producing a second credit.
   const [verified] = await db
     .update(payments)
     .set({
-      gatewayPaymentId: input.gatewayPaymentId,
-      gatewaySignature: input.signature,
+      gatewayPaymentId: gateway.gatewayPaymentId,
+      gatewaySignature: gateway.gatewaySignature,
       status: "SUCCESS",
       verifiedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(payments.id, payment.id))
+    .where(and(eq(payments.id, payment.id), eq(payments.status, "CREATED")))
     .returning();
 
-  // Credit only now, keyed on the gateway payment id.
+  // Another caller (the other of {client verify, webhook}) won the race
+  // between our SELECT above and this UPDATE — treat as an already-processed
+  // replay rather than crediting twice.
+  if (!verified) {
+    const settled = await db.query.payments.findFirst({
+      where: eq(payments.id, payment.id),
+    });
+    const wallet = await db.query.wallets.findFirst({
+      where: (w, { eq: equals }) => equals(w.userId, payment.userId),
+    });
+    return {
+      payment: settled ?? payment,
+      balancePaise: wallet?.balancePaise ?? 0,
+      alreadyProcessed: true,
+      voucherBonusPaise: 0,
+    };
+  }
+
+  // Credit the REAL money only now, keyed on the gateway payment id. This
+  // step is guaranteed: nothing about the voucher below is allowed to stop
+  // money the customer actually paid from reaching their wallet.
   const result = await applyWalletMutation({
-    userId: input.userId,
+    userId: payment.userId,
     amountPaise: payment.amountPaise,
     type: "TOP_UP",
-    idempotencyKey: `topup:${input.gatewayPaymentId}`,
+    idempotencyKey: `topup:${gateway.gatewayPaymentId}`,
     description: "Wallet top-up",
     paymentId: payment.id,
   });
 
   await recordAudit({
-    actorId: input.userId,
+    actorId: payment.userId,
     action: AUDIT_ACTIONS.WALLET_TOPUP_VERIFIED,
     entityType: "payment",
     entityId: payment.id,
     newValue: {
       amountPaise: payment.amountPaise,
-      gatewayPaymentId: input.gatewayPaymentId,
+      gatewayPaymentId: gateway.gatewayPaymentId,
     },
   });
 
   await notify({
-    userId: input.userId,
+    userId: payment.userId,
     type: NOTIFICATION_TYPES.WALLET_TOPUP_SUCCESS,
     title: "Wallet topped up",
     body: `₹${(payment.amountPaise / 100).toFixed(2)} has been added to your wallet.`,
     actionUrl: "/wallet",
   });
 
+  // Voucher bonus is opportunistic, not guaranteed (§19): a voucher that
+  // expired or hit its budget in the seconds between checkout and this
+  // callback must never claw back or block the real TOP_UP above — the
+  // customer already paid. Failure here is caught and reported as "no bonus",
+  // never surfaced as a payment failure.
+  let voucherBonusPaise = 0;
+  if (payment.voucherCode) {
+    try {
+      const wallet = await getOrCreateWallet(payment.userId);
+      const redemption = await redeemVoucher({
+        code: payment.voucherCode,
+        userId: payment.userId,
+        walletId: wallet.id,
+        topupAmountPaise: payment.amountPaise,
+        paymentId: payment.id,
+      });
+      if (redemption.status === "APPLIED" && redemption.bonusAmountPaise > 0) {
+        await applyWalletMutation({
+          userId: payment.userId,
+          amountPaise: redemption.bonusAmountPaise,
+          type: "PROMOTIONAL_CREDIT",
+          idempotencyKey: `voucher-credit:${redemption.id}`,
+          description: `Voucher bonus (${payment.voucherCode})`,
+          paymentId: payment.id,
+          voucherRedemptionId: redemption.id,
+        });
+        voucherBonusPaise = redemption.bonusAmountPaise;
+      }
+    } catch (error) {
+      console.error("[vouchers] bonus not applied for payment", payment.id, error);
+    }
+  }
+
+  const finalWallet = await db.query.wallets.findFirst({
+    where: (w, { eq: equals }) => equals(w.userId, payment.userId),
+  });
+
   return {
     payment: verified,
-    balancePaise: result.balancePaise,
+    balancePaise: finalWallet?.balancePaise ?? result.balancePaise,
     alreadyProcessed: result.deduplicated,
+    voucherBonusPaise,
   };
+}
+
+/**
+ * Server-to-server confirmation path (§3, §4) — the safety net for when a
+ * customer's browser never calls `verifyAndCreditTopUp` (closed tab, network
+ * drop after paying). The webhook's OWN signature over the raw request body
+ * is what authenticates this call; there is no checkout-widget signature to
+ * check here because Razorpay's webhook payload never contains one.
+ */
+export async function creditFromWebhook(
+  gatewayOrderId: string,
+  gatewayPaymentId: string,
+): Promise<VerifyTopUpResult | null> {
+  const payment = await db.query.payments.findFirst({
+    where: eq(payments.gatewayOrderId, gatewayOrderId),
+  });
+  if (!payment) return null; // Not one of ours (or a different purpose) — ignore, not an error.
+
+  if (payment.status === "SUCCESS") {
+    const wallet = await db.query.wallets.findFirst({
+      where: (w, { eq: equals }) => equals(w.userId, payment.userId),
+    });
+    return {
+      payment,
+      balancePaise: wallet?.balancePaise ?? 0,
+      alreadyProcessed: true,
+      voucherBonusPaise: 0,
+    };
+  }
+  if (payment.status === "REFUNDED" || payment.status === "FAILED") return null;
+
+  return finalizeVerifiedPayment(payment, {
+    gatewayPaymentId,
+    gatewaySignature: null,
+  });
 }
 
 /**

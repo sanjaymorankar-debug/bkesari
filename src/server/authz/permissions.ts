@@ -105,6 +105,15 @@ export const PERMISSIONS = {
 
   /** Audit visibility scoped to the actor's operational surface (§17 "Limited"). */
   AUDIT_LOG_VIEW_LIMITED: "audit-log:view:limited",
+
+  /* --------------------------------------------- vouchers (wallet brief §37) */
+  /** Create/edit a voucher, set its percentage, activate/deactivate it. ADMIN only. */
+  VOUCHER_MANAGE: "voucher:manage",
+  /** Upload a voucher list. Distinct from VOUCHER_MANAGE — an operator may
+   *  upload but never hand-set a promotional percentage themselves (§37). */
+  VOUCHER_UPLOAD: "voucher:upload",
+  /** View vouchers, redemptions and promotional-liability figures. */
+  VOUCHER_VIEW: "voucher:view",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -172,6 +181,8 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PAYMENT_RECORD,
   PERMISSIONS.REFERRAL_MANAGE,
   PERMISSIONS.AUDIT_LOG_VIEW_LIMITED,
+  PERMISSIONS.VOUCHER_UPLOAD,
+  PERMISSIONS.VOUCHER_VIEW,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -180,6 +191,8 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   // (or an admin) may approve them.
   // REGISTRATION_FEE_MANAGE is admin-only (§12) — an operator records payments
   // against the fee but cannot change the fee schedule itself.
+  // VOUCHER_MANAGE is admin-only (wallet brief §37): an operator may upload a
+  // voucher list but must never be able to hand-set a bonus percentage.
 ];
 
 const ADMIN_PERMISSIONS: readonly Permission[] = Object.values(PERMISSIONS);
@@ -279,4 +292,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.PAYMENT_RECORD]: "Record a payment, refund or reversal",
   [PERMISSIONS.REFERRAL_MANAGE]: "Create and assign referral codes",
   [PERMISSIONS.AUDIT_LOG_VIEW_LIMITED]: "View operational audit entries",
+  [PERMISSIONS.VOUCHER_MANAGE]: "Create, edit, and activate or deactivate vouchers",
+  [PERMISSIONS.VOUCHER_UPLOAD]: "Upload a voucher list",
+  [PERMISSIONS.VOUCHER_VIEW]: "View vouchers and redemptions",
 };

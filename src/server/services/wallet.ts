@@ -60,12 +60,24 @@ export interface WalletMutation {
   orderId?: string | null;
   subscriptionId?: string | null;
   paymentId?: string | null;
+  voucherRedemptionId?: string | null;
   createdBy?: string | null;
+  /**
+   * Explicit override for the promotional slice of this movement (§27–§29).
+   * Required-in-spirit for REFUND (restore the original purchase's exact
+   * split, not a guess) and implied-in-full for PROMOTIONAL_CREDIT (the
+   * entire amount is promotional by definition — passing this is optional
+   * there). Left undefined for a PURCHASE/SUBSCRIPTION_DEDUCTION debit, the
+   * engine computes it itself using PROMOTIONAL_FIRST spending (§28).
+   * Ignored for TOP_UP/MANUAL_CREDIT, which are always customer-funded.
+   */
+  promotionalAmountPaise?: number;
 }
 
 export interface WalletMutationResult {
   transaction: WalletTransaction;
   balancePaise: number;
+  promotionalBalancePaise: number;
   /** True when the key had already been used and no new money moved. */
   deduplicated: boolean;
 }
@@ -165,6 +177,7 @@ export async function applyWalletMutation(
       return {
         transaction: prior,
         balancePaise: locked.balancePaise,
+        promotionalBalancePaise: locked.promotionalBalancePaise,
         deduplicated: true,
       };
     }
@@ -179,10 +192,44 @@ export async function applyWalletMutation(
       throw insufficientBalance(mutation.amountPaise, previousBalance);
     }
 
-    // 4. Move the money and record it. Both statements share this transaction.
+    // 4. Determine the promotional slice of THIS movement (§27–§29).
+    const previousPromotional = locked.promotionalBalancePaise;
+    let signedPromotionalAmount: number;
+
+    if (mutation.promotionalAmountPaise !== undefined) {
+      // Caller knows exactly (a REFUND restoring an original split, or an
+      // explicit PROMOTIONAL_CREDIT amount).
+      signedPromotionalAmount = isCredit
+        ? mutation.promotionalAmountPaise
+        : -mutation.promotionalAmountPaise;
+    } else if (mutation.type === "PROMOTIONAL_CREDIT") {
+      // The whole amount is promotional by definition.
+      signedPromotionalAmount = mutation.amountPaise;
+    } else if (isCredit) {
+      // TOP_UP, MANUAL_CREDIT, undirected REFUND: customer-funded.
+      signedPromotionalAmount = 0;
+    } else {
+      // §28 PROMOTIONAL_FIRST: a debit draws down promotional balance before
+      // touching customer-funded balance.
+      const promoUsed = Math.min(mutation.amountPaise, previousPromotional);
+      signedPromotionalAmount = -promoUsed;
+    }
+
+    const newPromotionalBalance = previousPromotional + signedPromotionalAmount;
+    if (newPromotionalBalance < 0 || newPromotionalBalance > newBalance) {
+      // Should be unreachable given the checks above; a hard stop is safer
+      // than silently persisting an inconsistent split.
+      throw validationFailed("Promotional balance calculation is inconsistent.");
+    }
+
+    // 5. Move the money and record it. Both statements share this transaction.
     await tx
       .update(wallets)
-      .set({ balancePaise: newBalance, updatedAt: new Date() })
+      .set({
+        balancePaise: newBalance,
+        promotionalBalancePaise: newPromotionalBalance,
+        updatedAt: new Date(),
+      })
       .where(eq(wallets.id, locked.id));
 
     const [transaction] = await tx
@@ -192,18 +239,25 @@ export async function applyWalletMutation(
         userId: mutation.userId,
         type: mutation.type,
         amountPaise: signedAmount,
+        promotionalAmountPaise: signedPromotionalAmount,
         previousBalancePaise: previousBalance,
         newBalancePaise: newBalance,
         orderId: mutation.orderId ?? null,
         subscriptionId: mutation.subscriptionId ?? null,
         paymentId: mutation.paymentId ?? null,
+        voucherRedemptionId: mutation.voucherRedemptionId ?? null,
         idempotencyKey: mutation.idempotencyKey,
         description: mutation.description,
         createdBy: mutation.createdBy ?? null,
       })
       .returning();
 
-    return { transaction, balancePaise: newBalance, deduplicated: false };
+    return {
+      transaction,
+      balancePaise: newBalance,
+      promotionalBalancePaise: newPromotionalBalance,
+      deduplicated: false,
+    };
   };
 
   try {
@@ -223,6 +277,7 @@ export async function applyWalletMutation(
         return {
           transaction: existing,
           balancePaise: wallet?.balancePaise ?? existing.newBalancePaise,
+          promotionalBalancePaise: wallet?.promotionalBalancePaise ?? 0,
           deduplicated: true,
         };
       }
@@ -299,4 +354,73 @@ export async function updateWalletSettings(
 
   if (!updated) throw notFound("Wallet");
   return updated;
+}
+
+/**
+ * Refunds a debit while preserving its original customer-funded /
+ * promotional split (§29).
+ *
+ * "Preserving the split" means: read back how much of the ORIGINAL debit's
+ * amount was promotional (`promotionalAmountPaise` on that ledger row, always
+ * negative or zero for a debit), and credit exactly that much back as
+ * promotional. A flat `applyWalletMutation(..., type: "REFUND")` with no
+ * explicit split would instead default the whole refund to customer-funded —
+ * correct for a refund of a TOP_UP, wrong for a refund of a purchase that
+ * drew on promotional credit.
+ *
+ * `referenceType`/`referenceId` identify the ORIGINAL debit to refund —
+ * typically `{ referenceType: "orderId", referenceId: order.id }` or
+ * `{ referenceType: "subscriptionId", referenceId: ... }` — whichever column
+ * the original PRODUCT_PURCHASE / SUBSCRIPTION_DEDUCTION was recorded against.
+ */
+export async function refundOriginalDebit(
+  input: {
+    userId: string;
+    referenceType: "orderId" | "subscriptionId";
+    referenceId: string;
+    idempotencyKey: string;
+    description: string;
+    createdBy?: string | null;
+  },
+  client?: DbClient,
+): Promise<WalletMutationResult> {
+  const column =
+    input.referenceType === "orderId"
+      ? walletTransactions.orderId
+      : walletTransactions.subscriptionId;
+
+  const original = await (client ?? db).query.walletTransactions.findFirst({
+    where: and(
+      eq(column, input.referenceId),
+      eq(walletTransactions.userId, input.userId),
+      sql`${walletTransactions.amountPaise} < 0`,
+    ),
+    orderBy: desc(walletTransactions.createdAt),
+  });
+  if (!original) {
+    throw notFound("Original wallet debit for this reference");
+  }
+
+  const refundAmountPaise = -original.amountPaise;
+  const promotionalToRestore = -original.promotionalAmountPaise;
+
+  return applyWalletMutation(
+    {
+      userId: input.userId,
+      amountPaise: refundAmountPaise,
+      type: "REFUND",
+      idempotencyKey: input.idempotencyKey,
+      description: input.description,
+      orderId: input.referenceType === "orderId" ? input.referenceId : undefined,
+      subscriptionId: input.referenceType === "subscriptionId" ? input.referenceId : undefined,
+      createdBy: input.createdBy ?? null,
+      promotionalAmountPaise: promotionalToRestore,
+    },
+    client,
+  );
+}
+
+/** Customer-funded balance = total minus promotional. Never stored directly — always derived, so it cannot drift (§27). */
+export function customerFundedBalancePaise(wallet: Wallet): number {
+  return wallet.balancePaise - wallet.promotionalBalancePaise;
 }

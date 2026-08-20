@@ -32,6 +32,7 @@ export default async function WalletPage() {
       />
       <WalletView
         balancePaise={wallet.balancePaise}
+        promotionalBalancePaise={wallet.promotionalBalancePaise}
         lowBalanceThresholdPaise={wallet.lowBalanceThresholdPaise}
         todaysDeductionPaise={todaysDeduction}
         forecast={forecast}
@@ -43,6 +44,8 @@ export default async function WalletPage() {
           description: t.description,
           createdAt: t.createdAt.toISOString(),
         }))}
+        customerName={user.name}
+        customerEmail={user.email || null}
       />
     </>
   );

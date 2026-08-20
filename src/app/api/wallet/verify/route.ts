@@ -36,5 +36,6 @@ export const POST = route(async (request: NextRequest) => {
     success: true,
     balancePaise: result.balancePaise,
     alreadyProcessed: result.alreadyProcessed,
+    voucherBonusPaise: result.voucherBonusPaise,
   });
 });
