@@ -71,3 +71,51 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Long-form policy/legal text (Part 58) — no typography plugin installed, so
+   hand-style the handful of tags these documents actually use. */
+.legal-doc h1 {
+  margin-bottom: 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-ink-900);
+}
+.legal-doc h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-ink-900);
+}
+.legal-doc h3 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.375rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-ink-900);
+}
+.legal-doc p,
+.legal-doc ul,
+.legal-doc ol {
+  margin-bottom: 0.75rem;
+}
+.legal-doc ul,
+.legal-doc ol {
+  padding-left: 1.5rem;
+}
+.legal-doc ul {
+  list-style: disc;
+}
+.legal-doc ol {
+  list-style: decimal;
+}
+.legal-doc li {
+  margin-bottom: 0.25rem;
+}
+.legal-doc a {
+  color: var(--color-kesari-600);
+  text-decoration: underline;
+}
+.legal-doc strong {
+  color: var(--color-ink-900);
+}

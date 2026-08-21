@@ -37,6 +37,20 @@ export default async function SignInPage() {
               await signIn("google", { redirectTo: "/" });
             }}
           >
+            <label className="mb-3 flex items-start gap-2 text-xs text-ink-600">
+              <input type="checkbox" required className="mt-0.5" />
+              <span>
+                I agree to the{" "}
+                <a href="/legal/terms" target="_blank" className="underline">
+                  Terms &amp; Conditions
+                </a>{" "}
+                and{" "}
+                <a href="/legal/privacy-policy" target="_blank" className="underline">
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
             <button
               type="submit"
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-cream-100"

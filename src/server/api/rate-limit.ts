@@ -40,6 +40,8 @@ export const RATE_LIMITS = {
   MUTATION: { limit: 60, windowMs: 60_000 },
   /** The cron endpoint — generous, but not unbounded. */
   CRON: { limit: 30, windowMs: 60_000 },
+  /** Public grievance submission — unauthenticated, so keyed by IP rather than user id. */
+  GRIEVANCE: { limit: 5, windowMs: 600_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**

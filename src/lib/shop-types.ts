@@ -260,3 +260,30 @@ export function shopTypeLabel(key: string): string {
 export function standardGoodsFor(key: string): readonly string[] {
   return SHOP_TYPES.find((t) => t.key === key)?.standardGoods ?? [];
 }
+
+/**
+ * Shop types that manufacture, process, or sell food to consumers — these
+ * require an FSSAI licence/registration under the Food Safety and Standards
+ * Act 2006 (Part 58 compliance). Not every shop type is food-related
+ * (e.g. PHARMACY sells drugs, not food), so this is a deliberate allowlist
+ * rather than "everything except a few exclusions" — new shop types default
+ * to NOT requiring FSSAI fields until explicitly added here.
+ */
+export const FOOD_SHOP_TYPE_KEYS: readonly ShopTypeKey[] = [
+  "GROCERY_KIRANA",
+  "SUPERMARKET",
+  "CONVENIENCE_STORE",
+  "FRUIT_VEGETABLE",
+  "DAIRY",
+  "BAKERY",
+  "MEAT_SHOP",
+  "SWEET_SHOP",
+  "POULTRY_SUPPLY",
+  "RESTAURANT",
+  "FAST_FOOD",
+  "CAFE",
+];
+
+export function isFoodBusinessShopType(key: string): boolean {
+  return (FOOD_SHOP_TYPE_KEYS as readonly string[]).includes(key);
+}

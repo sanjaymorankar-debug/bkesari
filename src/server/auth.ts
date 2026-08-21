@@ -26,6 +26,7 @@ import {
   wallets,
   type UserRole,
 } from "@/server/db/schema";
+import { recordConsent } from "@/server/services/consents";
 
 declare module "next-auth" {
   interface Session {
@@ -172,6 +173,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       await db.update(users).set({ role }).where(eq(users.id, user.id));
       await ensureWallet(user.id);
+
+      // The sign-in page requires ticking "I agree to Terms & Privacy
+      // Policy" before the Google redirect can be submitted — that checkbox
+      // is the affirmative action DPDPA §6 requires; this is where it gets
+      // recorded so it is demonstrable later (§ "Your rights").
+      await recordConsent(user.id, "TERMS_AND_PRIVACY").catch((error) => {
+        console.error("[auth] failed to record sign-up consent", error);
+      });
     },
   },
   trustHost: true,

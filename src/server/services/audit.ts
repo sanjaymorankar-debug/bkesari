@@ -74,6 +74,17 @@ export const AUDIT_ACTIONS = {
   VOUCHER_REJECTED: "voucher.rejected",
   VOUCHER_UPLOADED: "voucher_upload.uploaded",
   VOUCHER_UPLOAD_APPLIED: "voucher_upload.applied",
+
+  /* ------------------------------------------------- grievance redressal */
+  GRIEVANCE_SUBMITTED: "grievance.submitted",
+  GRIEVANCE_UPDATED: "grievance.updated",
+  GRIEVANCE_RESOLVED: "grievance.resolved",
+
+  /* -------------------------------------------------------------- consent */
+  CONSENT_RECORDED: "consent.recorded",
+
+  /* --------------------------------------------- seller/food compliance */
+  SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

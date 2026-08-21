@@ -3,11 +3,14 @@ import { redirect } from "next/navigation";
 import { count, eq, sql } from "drizzle-orm";
 
 import { AuditLogView } from "@/components/audit-log-view";
+import { ComplianceDashboard } from "@/components/compliance-dashboard";
+import { GrievanceManager } from "@/components/grievance-manager";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { ProductApprovalQueue } from "@/components/product-approval-queue";
 import { ReferralManager } from "@/components/referral-manager";
 import { RegistrationFeeManager } from "@/components/registration-fee-manager";
 import { ShopApprovalPanel } from "@/components/shop-approval-panel";
+import { ShopComplianceManager } from "@/components/shop-compliance-manager";
 import { ShopFinanceManager } from "@/components/shop-finance-manager";
 import { Card, PageHeader, Section } from "@/components/ui";
 import { UserRoleManager } from "@/components/user-role-manager";
@@ -21,6 +24,8 @@ import { db } from "@/server/db";
 import { orders, shops, users, wallets } from "@/server/db/schema";
 import { listAuditLog } from "@/server/services/audit-log-query";
 import { listPendingProductApprovals } from "@/server/services/catalogue";
+import { getComplianceChecklist } from "@/server/services/compliance";
+import { getGrievanceDashboard, listGrievances } from "@/server/services/grievances";
 import { listAllPending } from "@/server/services/price-requests";
 import {
   getReferralPerformance,
@@ -69,6 +74,9 @@ export default async function AdminPage() {
   const canViewAudit =
     can(user.role, PERMISSIONS.AUDIT_LOG_VIEW) ||
     can(user.role, PERMISSIONS.AUDIT_LOG_VIEW_LIMITED);
+  const canManageGrievances = can(user.role, PERMISSIONS.GRIEVANCE_MANAGE);
+  const canManageShopCompliance = can(user.role, PERMISSIONS.SHOP_COMPLIANCE_MANAGE);
+  const canViewComplianceDashboard = can(user.role, PERMISSIONS.COMPLIANCE_DASHBOARD_VIEW);
 
   const [
     pending,
@@ -113,6 +121,9 @@ export default async function AdminPage() {
     pendingProducts,
     voucherList,
     voucherDashboard,
+    grievanceList,
+    grievanceDashboard,
+    complianceItems,
   ] = await Promise.all([
     searchShopsAdmin({ limit: 500 }),
     getRegistrationFeeReport(),
@@ -137,6 +148,11 @@ export default async function AdminPage() {
           totalPromotionalUsedPaise: 0,
           remainingLiabilityPaise: 0,
         }),
+    canManageGrievances ? listGrievances({ limit: 200 }) : Promise.resolve([]),
+    canManageGrievances
+      ? getGrievanceDashboard()
+      : Promise.resolve({ open: 0, inProgress: 0, resolved: 0, closed: 0, total: 0, overdue: 0 }),
+    canViewComplianceDashboard ? getComplianceChecklist() : Promise.resolve([]),
   ]);
 
   const [activeFee, feeHistory] = feeConfig as [
@@ -211,12 +227,55 @@ export default async function AdminPage() {
         />
       </section>
 
+      {canViewComplianceDashboard ? (
+        <Section title="Legal & regulatory compliance">
+          <ComplianceDashboard items={complianceItems} />
+        </Section>
+      ) : null}
+
       <ShopApprovalPanel
         pending={pending.map(serialiseShop)}
         approved={approved.map(serialiseShop)}
         canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
         canClassify={can(user.role, PERMISSIONS.SHOP_SET_CLASSIFICATION)}
       />
+
+      {canManageShopCompliance ? (
+        <Section title="Shop legal & seller information">
+          <ShopComplianceManager
+            shops={financeShops.map((s) => ({
+              id: s.id,
+              name: s.name,
+              shopType: s.shopType,
+              city: s.city,
+              legalBusinessName: s.legalBusinessName,
+              gstin: s.gstin,
+              fssaiLicenseNumber: s.fssaiLicenseNumber,
+              returnPolicyText: s.returnPolicyText,
+            }))}
+          />
+        </Section>
+      ) : null}
+
+      {canManageGrievances ? (
+        <Section title={`Grievances (${grievanceDashboard.open + grievanceDashboard.inProgress})`}>
+          <GrievanceManager
+            grievances={grievanceList.map((g) => ({
+              id: g.id,
+              ticketNumber: g.ticketNumber,
+              name: g.name,
+              email: g.email,
+              category: g.category,
+              subject: g.subject,
+              description: g.description,
+              status: g.status,
+              resolutionNotes: g.resolutionNotes,
+              createdAt: g.createdAt.toISOString(),
+            }))}
+            dashboard={grievanceDashboard}
+          />
+        </Section>
+      ) : null}
 
       {/* Approvals first: a pending price change is the most time-sensitive
           thing on this page (§11). */}

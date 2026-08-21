@@ -114,6 +114,17 @@ export const PERMISSIONS = {
   VOUCHER_UPLOAD: "voucher:upload",
   /** View vouchers, redemptions and promotional-liability figures. */
   VOUCHER_VIEW: "voucher:view",
+
+  /* ----------------------------------------- grievance redressal (Part 58) */
+  /** View, assign and resolve grievances (IT Rules 2021 Rule 3(2)). */
+  GRIEVANCE_MANAGE: "grievance:manage",
+
+  /* ---------------------------------- seller/food compliance (Part 58) */
+  /** Set a shop's legal name, GSTIN, FSSAI number, return-policy override. */
+  SHOP_COMPLIANCE_MANAGE: "shop-compliance:manage",
+
+  /** View the admin compliance dashboard (checklist + policy status). */
+  COMPLIANCE_DASHBOARD_VIEW: "compliance-dashboard:view",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -183,6 +194,8 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.AUDIT_LOG_VIEW_LIMITED,
   PERMISSIONS.VOUCHER_UPLOAD,
   PERMISSIONS.VOUCHER_VIEW,
+  PERMISSIONS.GRIEVANCE_MANAGE,
+  PERMISSIONS.SHOP_COMPLIANCE_MANAGE,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -295,4 +308,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.VOUCHER_MANAGE]: "Create, edit, and activate or deactivate vouchers",
   [PERMISSIONS.VOUCHER_UPLOAD]: "Upload a voucher list",
   [PERMISSIONS.VOUCHER_VIEW]: "View vouchers and redemptions",
+  [PERMISSIONS.GRIEVANCE_MANAGE]: "View, assign and resolve grievances",
+  [PERMISSIONS.SHOP_COMPLIANCE_MANAGE]:
+    "Set a shop's legal name, GSTIN, FSSAI number and return policy",
+  [PERMISSIONS.COMPLIANCE_DASHBOARD_VIEW]: "View the legal compliance dashboard",
 };

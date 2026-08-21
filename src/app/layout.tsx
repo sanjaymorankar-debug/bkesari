@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 
+import Link from "next/link";
+
 import { SiteHeader } from "@/components/site-header";
+import { LEGAL_DOCS } from "@/lib/legal-docs";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCart } from "@/server/services/cart";
 import { unreadCount } from "@/server/services/notifications";
@@ -50,7 +53,19 @@ export default async function RootLayout({
         </main>
         <footer className="border-t border-cream-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
-            Dairy &amp; Bakery Marketplace — fresh from shops near you.
+            <p className="mb-3">
+              Dairy &amp; Bakery Marketplace — fresh from shops near you.
+            </p>
+            <nav className="flex flex-wrap gap-x-4 gap-y-1">
+              {LEGAL_DOCS.map((doc) => (
+                <Link key={doc.slug} href={`/legal/${doc.slug}`} className="hover:text-ink-700 hover:underline">
+                  {doc.shortLabel}
+                </Link>
+              ))}
+              <Link href="/grievance" className="hover:text-ink-700 hover:underline">
+                File a complaint
+              </Link>
+            </nav>
           </div>
         </footer>
       </body>

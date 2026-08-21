@@ -270,6 +270,37 @@ export const voucherUploadRowStatusEnum = pgEnum("voucher_upload_row_status", [
   "INVALID",
 ]);
 
+/**
+ * Grievance redressal (Part 58 — Information Technology Rules 2021, Rule
+ * 3(2): an intermediary must acknowledge a complaint within 24 hours and
+ * dispose of it within 15 days). Deliberately a plain status ladder, not a
+ * generic support-ticket system — this table's whole purpose is to be the
+ * thing a Grievance Officer can point to as their compliance record.
+ */
+export const grievanceStatusEnum = pgEnum("grievance_status", [
+  "OPEN",
+  "IN_PROGRESS",
+  "RESOLVED",
+  "CLOSED",
+]);
+
+export const grievanceCategoryEnum = pgEnum("grievance_category", [
+  "PAYMENT",
+  "WALLET",
+  "ORDER",
+  "SUBSCRIPTION",
+  "SELLER",
+  "PRODUCT",
+  "PRIVACY",
+  "OTHER",
+]);
+
+/** What a user consented to, and to which version — the DPDPA-relevant trail. */
+export const consentTypeEnum = pgEnum("consent_type", [
+  "TERMS_AND_PRIVACY",
+  "MARKETING_COMMUNICATIONS",
+]);
+
 /* ------------------------------------------------- auth (Auth.js managed) */
 
 export const users = pgTable(
@@ -478,6 +509,25 @@ export const shops = pgTable(
     amountPaidPaise: bigint("amount_paid_paise", { mode: "number" })
       .notNull()
       .default(0),
+
+    /* ------------------------------- seller & compliance transparency (Part
+     * 58: Consumer Protection (E-Commerce) Rules 2020 require the seller's
+     * legal identity, not just a storefront display name, to be available to
+     * a buyer before purchase. All nullable — not every shop is a registered
+     * legal entity distinct from its owner, and only food-category shops need
+     * an FSSAI number, so nothing here is force-collected at registration. */
+    /** Registered legal/business name, if different from the storefront `name`. */
+    legalBusinessName: text("legal_business_name"),
+    /** GST Identification Number, where the seller is GST-registered. */
+    gstin: text("gstin"),
+    /** FSSAI licence/registration number — relevant for food-category shop types. */
+    fssaiLicenseNumber: text("fssai_license_number"),
+    /**
+     * Shop-specific return/refund terms shown to buyers before purchase. Null
+     * means the platform default (Refund & Cancellation Policy) applies.
+     */
+    returnPolicyText: text("return_policy_text"),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1717,6 +1767,74 @@ export const priceUpdateRequests = pgTable(
   ],
 );
 
+/* -------------------------------------------------- grievance redressal */
+
+/**
+ * A complaint filed through the grievance mechanism required by IT Rules
+ * 2021 Rule 3(2). Deliberately open to unauthenticated submitters
+ * (`submittedByUserId` nullable, `email` always required) — a grievance
+ * about being unable to sign in must not itself require signing in.
+ */
+export const grievances = pgTable(
+  "grievances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Human-readable reference, e.g. GRV-000123 — what the complainant quotes back. */
+    ticketNumber: text("ticket_number")
+      .notNull()
+      .default(sql`'GRV-' || lpad(nextval('grievance_ticket_seq')::text, 6, '0')`),
+    submittedByUserId: uuid("submitted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    phone: text("phone"),
+    category: grievanceCategoryEnum("category").notNull().default("OTHER"),
+    subject: text("subject").notNull(),
+    description: text("description").notNull(),
+    status: grievanceStatusEnum("status").notNull().default("OPEN"),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    resolutionNotes: text("resolution_notes"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("grievances_ticket_number_unique").on(t.ticketNumber),
+    index("grievances_status_idx").on(t.status),
+    index("grievances_email_idx").on(t.email),
+    index("grievances_submitted_by_idx").on(t.submittedByUserId),
+  ],
+);
+
+/** Append-only — a consent is never edited or deleted, only superseded by a newer row. */
+export const userConsents = pgTable(
+  "user_consents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    consentType: consentTypeEnum("consent_type").notNull(),
+    /** The policy version consented to, e.g. "2026-08-21" — matches the policy page's "Last updated" date. */
+    version: text("version").notNull(),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("user_consents_user_idx").on(t.userId),
+    index("user_consents_type_idx").on(t.consentType),
+  ],
+);
+
 /* ----------------------------------------------------------- audit logs */
 
 export const auditLogs = pgTable(
@@ -1762,6 +1880,11 @@ export type VoucherStatus = (typeof voucherStatusEnum.enumValues)[number];
 export type VoucherApplyMode = (typeof voucherApplyModeEnum.enumValues)[number];
 export type VoucherRedemptionStatus =
   (typeof voucherRedemptionStatusEnum.enumValues)[number];
+export type Grievance = typeof grievances.$inferSelect;
+export type GrievanceStatus = (typeof grievanceStatusEnum.enumValues)[number];
+export type GrievanceCategory = (typeof grievanceCategoryEnum.enumValues)[number];
+export type UserConsent = typeof userConsents.$inferSelect;
+export type ConsentType = (typeof consentTypeEnum.enumValues)[number];
 export type Subscription = typeof subscriptions.$inferSelect;
 export type SubscriptionDailyOverride =
   typeof subscriptionDailyOverrides.$inferSelect;

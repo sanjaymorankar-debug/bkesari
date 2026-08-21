@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ProductGrid } from "@/app/page";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
-import { shopTypeLabel } from "@/lib/shop-types";
+import { isFoodBusinessShopType, shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
@@ -108,6 +108,66 @@ export default async function ShopPage({
             </div>
           </dl>
         </div>
+      </Card>
+
+      {/*
+        Seller information (Consumer Protection (E-Commerce) Rules 2020,
+        Rule 5 — legal name, address, customer care contact, and applicable
+        registrations must be disclosed to the customer before purchase).
+        Only shown once approved/verified data exists; this deliberately does
+        NOT claim FSSAI/GST registration for shops where the admin has not
+        recorded one.
+      */}
+      <Card className="mb-6 p-6">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">
+          Seller information
+        </h2>
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="font-medium text-ink-700">Sold by</dt>
+            <dd className="text-ink-500">{shop.legalBusinessName || shop.name}</dd>
+          </div>
+          <div>
+            <dt className="font-medium text-ink-700">Customer care</dt>
+            <dd className="text-ink-500">
+              {shop.ownerName} · {shop.phone}
+              {shop.email ? (
+                <>
+                  <br />
+                  {shop.email}
+                </>
+              ) : null}
+            </dd>
+          </div>
+          {shop.gstin ? (
+            <div>
+              <dt className="font-medium text-ink-700">GSTIN</dt>
+              <dd className="text-ink-500">{shop.gstin}</dd>
+            </div>
+          ) : null}
+          {isFoodBusinessShopType(shop.shopType) ? (
+            <div>
+              <dt className="font-medium text-ink-700">FSSAI licence</dt>
+              <dd className="text-ink-500">
+                {shop.fssaiLicenseNumber || "Not yet on file with the platform"}
+              </dd>
+            </div>
+          ) : null}
+          <div className="sm:col-span-2">
+            <dt className="font-medium text-ink-700">Return &amp; refund</dt>
+            <dd className="text-ink-500">
+              {shop.returnPolicyText || (
+                <>
+                  See the platform&apos;s{" "}
+                  <a href="/legal/refund-policy" className="underline">
+                    Refund &amp; Cancellation Policy
+                  </a>
+                  .
+                </>
+              )}
+            </dd>
+          </div>
+        </dl>
       </Card>
 
       {Array.from(byCategory.entries()).map(([categoryName, items]) => (

@@ -255,6 +255,74 @@ export async function updateShopRegistration(
   return updated;
 }
 
+/**
+ * Sets a shop's seller-transparency and food-compliance fields (Part 58 —
+ * Consumer Protection (E-Commerce) Rules 2020, and FSSAI licensing for
+ * food-category shops).
+ *
+ * Deliberately admin/operator-only (SHOP_COMPLIANCE_MANAGE), not owner-
+ * editable: a GSTIN or FSSAI number is a verifiable regulatory credential,
+ * not a free-text profile field, so it goes through the same review-gated
+ * path as classification (§10) rather than the owner's own shop-settings
+ * form.
+ */
+export async function updateShopCompliance(
+  shopId: string,
+  patch: {
+    legalBusinessName?: string | null;
+    gstin?: string | null;
+    fssaiLicenseNumber?: string | null;
+    returnPolicyText?: string | null;
+  },
+  actor: { id: string; role: UserRole },
+): Promise<Shop> {
+  const current = await db.query.shops.findFirst({
+    where: and(eq(shops.id, shopId), isNull(shops.deletedAt)),
+  });
+  if (!current) throw notFound("Shop");
+
+  if (patch.gstin && !/^[0-9A-Z]{15}$/.test(patch.gstin)) {
+    throw validationFailed("GSTIN must be 15 alphanumeric characters.");
+  }
+
+  const [updated] = await db
+    .update(shops)
+    .set({
+      ...(patch.legalBusinessName !== undefined
+        ? { legalBusinessName: patch.legalBusinessName }
+        : {}),
+      ...(patch.gstin !== undefined ? { gstin: patch.gstin } : {}),
+      ...(patch.fssaiLicenseNumber !== undefined
+        ? { fssaiLicenseNumber: patch.fssaiLicenseNumber }
+        : {}),
+      ...(patch.returnPolicyText !== undefined
+        ? { returnPolicyText: patch.returnPolicyText }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(shops.id, shopId))
+    .returning();
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SHOP_COMPLIANCE_UPDATED,
+    entityType: "shop",
+    entityId: shopId,
+    previousValue: {
+      legalBusinessName: current.legalBusinessName,
+      gstin: current.gstin,
+      fssaiLicenseNumber: current.fssaiLicenseNumber,
+    },
+    newValue: {
+      legalBusinessName: updated.legalBusinessName,
+      gstin: updated.gstin,
+      fssaiLicenseNumber: updated.fssaiLicenseNumber,
+    },
+  });
+  return updated;
+}
+
 /* ------------------------------------------------------------- approval */
 
 export async function approveShop(

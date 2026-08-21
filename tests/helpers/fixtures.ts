@@ -28,6 +28,7 @@ const uniq = () => `${Date.now().toString(36)}-${(counter += 1)}`;
 export async function resetDatabase(): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
+      grievances, user_consents,
       audit_logs, notifications,
       price_update_requests, price_update_batches,
       excel_upload_items, excel_uploads,

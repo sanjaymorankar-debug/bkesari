@@ -29,6 +29,8 @@ export const NOTIFICATION_TYPES = {
   SUBSCRIPTION_PAYMENT_FAILED: "subscription.payment_failed",
   SUBSCRIPTION_UPCOMING_REMINDER: "subscription.upcoming_reminder",
   PRICE_CHANGED: "product.price_changed",
+  GRIEVANCE_ACKNOWLEDGED: "grievance.acknowledged",
+  GRIEVANCE_RESOLVED: "grievance.resolved",
 } as const;
 
 export type NotificationType =
