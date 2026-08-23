@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 
 import { SiteHeader } from "@/components/site-header";
-import { LEGAL_DOCS } from "@/lib/legal-docs";
+import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCart } from "@/server/services/cart";
 import { unreadCount } from "@/server/services/notifications";
@@ -53,10 +53,19 @@ export default async function RootLayout({
         </main>
         <footer className="border-t border-cream-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
-            <p className="mb-3">
+            <p className="mb-1">
               Dairy &amp; Bakery Marketplace — fresh from shops near you.
             </p>
+            <p className="mb-3">
+              {LEGAL_ENTITY.legalName} · GSTIN: {LEGAL_ENTITY.gstin}
+            </p>
             <nav className="flex flex-wrap gap-x-4 gap-y-1">
+              <Link href="/about" className="hover:text-ink-700 hover:underline">
+                About Us
+              </Link>
+              <Link href="/contact" className="hover:text-ink-700 hover:underline">
+                Contact Us
+              </Link>
               {LEGAL_DOCS.map((doc) => (
                 <Link key={doc.slug} href={`/legal/${doc.slug}`} className="hover:text-ink-700 hover:underline">
                   {doc.shortLabel}

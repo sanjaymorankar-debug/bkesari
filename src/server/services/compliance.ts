@@ -69,12 +69,26 @@ export async function getComplianceChecklist(): Promise<ComplianceItem[]> {
         : "No complaints are currently overdue against the 15-day guidance window.",
   });
 
+  const entityPlaceholders = [
+    LEGAL_ENTITY.legalName,
+    LEGAL_ENTITY.registeredAddress,
+    LEGAL_ENTITY.cinOrRegistrationNumber,
+  ].filter(isPlaceholder).length;
   items.push({
-    area: "Legal entity identity",
-    status: isPlaceholder(LEGAL_ENTITY.legalName) ? "MISSING" : "ACTIVE",
-    detail: isPlaceholder(LEGAL_ENTITY.legalName)
-      ? "Registered legal name / address / CIN placeholders in src/lib/legal-docs.ts must be filled in."
-      : "Registered legal entity details are on file.",
+    area: "Legal entity identity (name, address, CIN)",
+    status: entityPlaceholders > 0 ? "MISSING" : "ACTIVE",
+    detail:
+      entityPlaceholders > 0
+        ? `${entityPlaceholders} of 3 entity fields in src/lib/legal-docs.ts are still placeholders — shown publicly on the About page and site footer, so this must match the actual registration documents before launch.`
+        : "Registered legal entity name/address/CIN are on file and shown on the About page.",
+  });
+
+  items.push({
+    area: "Platform GSTIN",
+    status: isPlaceholder(LEGAL_ENTITY.gstin) ? "MISSING" : "ACTIVE",
+    detail: isPlaceholder(LEGAL_ENTITY.gstin)
+      ? "Platform GSTIN placeholder in src/lib/legal-docs.ts is shown publicly in the site footer and About page — fill in the real value or confirm none applies."
+      : "Platform GSTIN is on file and shown publicly.",
   });
 
   items.push({
