@@ -936,10 +936,10 @@ export const payments = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    gateway: text("gateway").notNull().default("RAZORPAY"),
-    /** Razorpay order id — unique so one intent cannot be created twice. */
+    gateway: text("gateway").notNull().default("CASHFREE"),
+    /** Cashfree order id — unique so one intent cannot be created twice. */
     gatewayOrderId: text("gateway_order_id").notNull(),
-    /** Razorpay payment id — UNIQUE, which is what blocks replayed callbacks. */
+    /** Cashfree payment id (cf_payment_id) — UNIQUE, which is what blocks replayed callbacks. */
     gatewayPaymentId: text("gateway_payment_id"),
     gatewaySignature: text("gateway_signature"),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),

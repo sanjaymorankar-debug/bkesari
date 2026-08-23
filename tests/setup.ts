@@ -20,4 +20,4 @@ env.DATABASE_URL = testUrl;
 env.NODE_ENV = "test";
 env.AUTH_SECRET ??= "test-secret";
 env.CRON_SECRET ??= "test-cron-secret";
-env.RAZORPAY_WEBHOOK_SECRET ??= "test-webhook-secret";
+env.CASHFREE_SECRET_KEY ??= "test-webhook-secret";

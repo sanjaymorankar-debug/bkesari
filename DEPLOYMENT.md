@@ -35,9 +35,9 @@ AUTH_URL=https://your-domain.com
 AUTH_GOOGLE_ID=<google oauth client id>
 AUTH_GOOGLE_SECRET=<google oauth client secret>
 
-RAZORPAY_KEY_ID=<live key id>
-RAZORPAY_KEY_SECRET=<live key secret>
-RAZORPAY_WEBHOOK_SECRET=<webhook secret>
+CASHFREE_APP_ID=<live app id>
+CASHFREE_SECRET_KEY=<live secret key>
+CASHFREE_ENV=production
 
 CRON_SECRET=<openssl rand -hex 32>
 BOOTSTRAP_ADMIN_EMAILS=you@your-domain.com
@@ -80,8 +80,8 @@ Recommended branch mapping:
 | `main` | production | `your-domain.com` |
 
 Promotion is a merge of `staging` into `main`, which is also the human approval
-gate. Give each environment its **own database** and its own Razorpay keys — use
-Razorpay test keys on staging so no real money moves.
+gate. Give each environment its **own database** and its own Cashfree keys — use
+Cashfree sandbox keys on staging so no real money moves.
 
 ## 4. Run migrations
 
@@ -138,19 +138,23 @@ The response reports `generated`, `skipped`, `alreadyExisted`, `walletFailures`,
 failure is the most damaging outage this system has, because customers simply
 stop receiving milk.
 
-## 6. Razorpay
+## 6. Cashfree
 
 1. Complete KYC and switch the account to Live mode.
-2. Copy the live Key ID and Key Secret into the environment.
-3. Add a webhook pointing at your domain and set `RAZORPAY_WEBHOOK_SECRET`.
+2. Copy the live App ID and Secret Key into the environment, and set
+   `CASHFREE_ENV=production`.
+3. Add a webhook pointing at `https://your-domain.com/api/webhooks/cashfree`
+   in the Cashfree dashboard — it authenticates with the same
+   `CASHFREE_SECRET_KEY`, there is no separate webhook secret.
 
-The wallet is credited only after server-side signature verification, and
+The wallet is credited only after the server independently confirms payment
+with Cashfree's own API (never from anything the client reports), and
 `payments.gateway_payment_id` is UNIQUE, so a replayed callback or a webhook
 racing the browser callback cannot credit twice.
 
-With no Razorpay credentials the app runs in **mock payment mode**, which is
+With no Cashfree credentials the app runs in **mock payment mode**, which is
 correct for local development but must never reach production — confirm
-`RAZORPAY_KEY_ID` is set before going live.
+`CASHFREE_APP_ID` is set before going live.
 
 ## 7. Backups
 
@@ -235,7 +239,7 @@ Rollback checklist:
 - [ ] `AUTH_SECRET` and `CRON_SECRET` are freshly generated, not the dev defaults
 - [ ] `DATABASE_URL` uses a non-superuser and `sslmode=require`
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
-- [ ] `RAZORPAY_KEY_ID` is set — confirm the app is not in mock payment mode
+- [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once
 - [ ] Daily cron scheduled **and observed to run successfully once**
 - [ ] Signed in with the bootstrap admin, then removed `BOOTSTRAP_ADMIN_EMAILS`

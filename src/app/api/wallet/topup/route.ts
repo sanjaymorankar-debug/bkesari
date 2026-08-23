@@ -29,7 +29,8 @@ export const POST = route(async (request: NextRequest) => {
   return ok({
     paymentId: result.payment.id,
     gatewayOrderId: result.gatewayOrderId,
-    keyId: result.keyId,
+    paymentSessionId: result.paymentSessionId,
+    cashfreeMode: result.cashfreeMode,
     amountPaise: result.amountPaise,
     currency: result.currency,
     mock: result.mock,

@@ -1,8 +1,13 @@
 /**
  * Payment verification (requirements §18, §20, §48).
  *
- * The forged-signature and replayed-callback cases are the ones that matter:
- * they are the difference between a wallet and a money printer.
+ * MOCK-mode settlement (`settleMockTopUp`) is what these tests exercise — no
+ * live credentials are configured in the test environment, so every
+ * `createTopUpOrder` call here produces a MOCK-gateway payment. The
+ * forged-signature and replayed-callback cases are the ones that matter:
+ * they are the difference between a wallet and a money printer. Live-mode
+ * verification (`verifyAndCreditTopUp` confirming against Cashfree's own
+ * API) is covered separately in cashfree-order-confirmation.test.ts.
  */
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -11,9 +16,9 @@ import { db } from "@/server/db";
 import { payments, walletTransactions, wallets } from "@/server/db/schema";
 import {
   createTopUpOrder,
+  settleMockTopUp,
   signForMock,
-  verifyAndCreditTopUp,
-  verifySignature,
+  verifyMockSignature,
 } from "@/server/services/payments";
 import { createUserWithWallet, resetDatabase } from "../helpers/fixtures";
 
@@ -60,7 +65,7 @@ describe("signature verification", () => {
     const intent = await createTopUpOrder(user.id, 500_000);
     const paymentId = "pay_test_1";
 
-    const result = await verifyAndCreditTopUp({
+    const result = await settleMockTopUp({
       userId: user.id,
       gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId,
@@ -83,7 +88,7 @@ describe("signature verification", () => {
     const intent = await createTopUpOrder(user.id, 500_000);
 
     await expect(
-      verifyAndCreditTopUp({
+      settleMockTopUp({
         userId: user.id,
         gatewayOrderId: intent.gatewayOrderId,
         gatewayPaymentId: "pay_forged",
@@ -107,7 +112,7 @@ describe("signature verification", () => {
     const wrongSignature = signForMock(intent.gatewayOrderId, "pay_other");
 
     await expect(
-      verifyAndCreditTopUp({
+      settleMockTopUp({
         userId: user.id,
         gatewayOrderId: intent.gatewayOrderId,
         gatewayPaymentId: "pay_mine",
@@ -125,7 +130,7 @@ describe("signature verification", () => {
     const paymentId = "pay_hijack";
 
     await expect(
-      verifyAndCreditTopUp({
+      settleMockTopUp({
         userId: attacker.id,
         gatewayOrderId: intent.gatewayOrderId,
         gatewayPaymentId: paymentId,
@@ -139,10 +144,10 @@ describe("signature verification", () => {
 
   it("verifies HMAC directly", () => {
     const sig = signForMock("order_1", "pay_1");
-    expect(verifySignature("order_1", "pay_1", sig)).toBe(true);
-    expect(verifySignature("order_1", "pay_2", sig)).toBe(false);
-    expect(verifySignature("order_2", "pay_1", sig)).toBe(false);
-    expect(verifySignature("order_1", "pay_1", "short")).toBe(false);
+    expect(verifyMockSignature("order_1", "pay_1", sig)).toBe(true);
+    expect(verifyMockSignature("order_1", "pay_2", sig)).toBe(false);
+    expect(verifyMockSignature("order_2", "pay_1", sig)).toBe(false);
+    expect(verifyMockSignature("order_1", "pay_1", "short")).toBe(false);
   });
 });
 
@@ -153,13 +158,13 @@ describe("replay protection (§48)", () => {
     const paymentId = "pay_replay";
     const signature = signForMock(intent.gatewayOrderId, paymentId);
 
-    const first = await verifyAndCreditTopUp({
+    const first = await settleMockTopUp({
       userId: user.id,
       gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId,
       signature,
     });
-    const second = await verifyAndCreditTopUp({
+    const second = await settleMockTopUp({
       userId: user.id,
       gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId,
@@ -186,7 +191,7 @@ describe("replay protection (§48)", () => {
     // Callback and webhook racing each other.
     await Promise.allSettled(
       Array.from({ length: 5 }, () =>
-        verifyAndCreditTopUp({
+        settleMockTopUp({
           userId: user.id,
           gatewayOrderId: intent.gatewayOrderId,
           gatewayPaymentId: paymentId,

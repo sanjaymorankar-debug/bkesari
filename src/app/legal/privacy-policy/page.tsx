@@ -35,10 +35,10 @@ export default function PrivacyPolicyPage() {
           history.
         </li>
         <li>
-          <strong>Payment data</strong> — payments are processed by Razorpay,
+          <strong>Payment data</strong> — payments are processed by Cashfree,
           our payment gateway partner. We do not receive or store your card,
           UPI PIN, or net-banking credentials; we retain only the payment
-          reference/transaction ID Razorpay returns to confirm a payment.
+          reference/transaction ID Cashfree returns to confirm a payment.
         </li>
         <li>
           <strong>Location data</strong> — this platform does not currently
@@ -80,8 +80,8 @@ export default function PrivacyPolicyPage() {
       <h2>4. Who your data is shared with</h2>
       <ul>
         <li>
-          <strong>Razorpay</strong> (payment gateway) — to process payments
-          and refunds. Razorpay acts as an independent data controller for
+          <strong>Cashfree</strong> (payment gateway) — to process payments
+          and refunds. Cashfree acts as an independent data controller for
           the payment details you provide directly to it.
         </li>
         <li>

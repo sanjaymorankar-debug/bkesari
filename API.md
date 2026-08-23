@@ -151,20 +151,19 @@ recent transactions.
 `{ "amountPaise": 500000 }` (min ₹1, max ₹1,00,000)
 
 Creates a gateway order only — **no money moves**. Returns
-`{ gatewayOrderId, keyId, amountPaise, mock }`.
+`{ gatewayOrderId, paymentSessionId, cashfreeMode, amountPaise, mock }`.
 
 ### `POST /api/wallet/verify`
 ```json
-{
-  "razorpay_order_id": "…",
-  "razorpay_payment_id": "…",
-  "razorpay_signature": "…"
-}
+{ "gatewayOrderId": "…" }
 ```
 
-Verifies the HMAC server-side, then credits. Idempotent on the gateway payment
-id, so a replayed callback returns `alreadyProcessed: true` without a second
-credit. A forged signature marks the payment `FAILED` and credits nothing.
+Independently confirms with Cashfree's own API whether this order was
+actually paid — nothing the client posts here is trusted as proof of
+payment, only which order to check. Idempotent on the gateway payment id, so
+a replayed call returns `alreadyProcessed: true` without a second credit. If
+Cashfree does not confirm payment, the payment is marked `FAILED` and
+nothing is credited.
 
 ### `PATCH /api/wallet/settings`
 `lowBalanceThresholdPaise`, `autoRechargeEnabled`, `autoRechargeTriggerPaise`,

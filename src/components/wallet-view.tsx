@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
+import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
 import { TOPUP_PRESETS_PAISE, formatPaiseCompact, rupeesToPaise } from "@/lib/money";
-import { openRazorpayCheckout } from "@/lib/razorpay-checkout";
 import type { WalletForecast } from "@/server/services/subscriptions";
 
 interface Transaction {
@@ -33,8 +33,6 @@ export function WalletView({
   todaysDeductionPaise,
   forecast,
   transactions,
-  customerName,
-  customerEmail,
 }: {
   balancePaise: number;
   promotionalBalancePaise: number;
@@ -42,8 +40,6 @@ export function WalletView({
   todaysDeductionPaise: number;
   forecast: WalletForecast;
   transactions: Transaction[];
-  customerName: string | null;
-  customerEmail: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -87,10 +83,11 @@ export function WalletView({
   /**
    * Creates a gateway order then collects payment.
    *
-   * Live credentials → opens the real Razorpay Checkout widget and waits for
-   * the customer to pay, then verifies server-side. Mock mode (no Razorpay
-   * credentials — dev/test only) asks the server for a signed confirmation so
-   * the exact same verify-then-credit path still runs end to end.
+   * Live credentials → opens the real Cashfree Checkout widget, then asks the
+   * server to independently confirm payment with Cashfree. Mock mode (no
+   * Cashfree credentials — dev/test only) asks the server for a signed
+   * confirmation so the exact same verify-then-credit path still runs end to
+   * end.
    */
   async function addMoney(amountPaise: number) {
     setBusy(true);
@@ -131,29 +128,17 @@ export function WalletView({
         return;
       }
 
-      // Live gateway: open the actual Razorpay widget and wait for the
-      // customer to complete (or cancel) payment.
-      const response = await openRazorpayCheckout({
-        key: intent.keyId,
-        amount: intent.amountPaise,
-        currency: intent.currency,
-        order_id: intent.gatewayOrderId,
-        name: "Dairy & Bakery",
-        description: "Wallet top-up",
-        prefill: {
-          name: customerName ?? undefined,
-          email: customerEmail ?? undefined,
-        },
-        theme: { color: "#e85d2c" },
-      });
+      // Live gateway: open the actual Cashfree widget and wait for it to
+      // close (payment completed or cancelled), then ask the server to
+      // independently confirm with Cashfree whether it was actually paid.
+      await openCashfreeCheckout(
+        { paymentSessionId: intent.paymentSessionId },
+        intent.cashfreeMode,
+      );
       const verifyResponse = await fetch("/api/wallet/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          razorpay_order_id: response.razorpay_order_id,
-          razorpay_payment_id: response.razorpay_payment_id,
-          razorpay_signature: response.razorpay_signature,
-        }),
+        body: JSON.stringify({ gatewayOrderId: intent.gatewayOrderId }),
       });
       const verified = await verifyResponse.json();
       if (!verifyResponse.ok) {
@@ -390,7 +375,7 @@ export function WalletView({
           ) : null}
 
           <p className="mt-3 text-xs text-ink-500">
-            Payments are processed by Razorpay. Your wallet is credited only
+            Payments are processed by Cashfree. Your wallet is credited only
             after the payment is verified.
           </p>
         </Card>

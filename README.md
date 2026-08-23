@@ -11,7 +11,7 @@ rationale and [DEPLOYMENT.md](./DEPLOYMENT.md) for going live.
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS v4 ·
-PostgreSQL 16 · Drizzle ORM · Auth.js (Google OAuth) · Zod · Razorpay ·
+PostgreSQL 16 · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
 Vitest · Playwright
 
 > Drizzle is used instead of Prisma. The reason is documented in
@@ -52,8 +52,8 @@ Dairy Farm) so the online/offline rule is visible immediately.
 | `AUTH_SECRET` | yes | Auth.js session encryption. Generate with `openssl rand -base64 32` |
 | `AUTH_URL` | prod | Canonical app URL, e.g. `https://bkesari.com` |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | prod | Google OAuth client. Without these, Google sign-in is hidden |
-| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | prod | Payment gateway. Without these the app runs in MOCK payment mode |
-| `RAZORPAY_WEBHOOK_SECRET` | optional | Verifies Razorpay webhooks |
+| `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` | prod | Payment gateway. Without these the app runs in MOCK payment mode |
+| `CASHFREE_ENV` | no | `sandbox` (default) or `production` |
 | `CRON_SECRET` | yes | Bearer token guarding the daily-order endpoint |
 | `BOOTSTRAP_ADMIN_EMAILS` | first deploy | Comma-separated emails granted ADMIN on first sign-in |
 | `SUBSCRIPTION_CUTOFF_HOUR` | no | Delivery cutoff hour, default `20` |

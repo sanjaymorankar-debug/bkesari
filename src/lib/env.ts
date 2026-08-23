@@ -26,10 +26,10 @@ const serverEnvSchema = z.object({
   AUTH_GOOGLE_ID: z.string().optional(),
   AUTH_GOOGLE_SECRET: z.string().optional(),
 
-  // Razorpay. Absent in dev/test, in which case payments run in MOCK mode.
-  RAZORPAY_KEY_ID: z.string().optional(),
-  RAZORPAY_KEY_SECRET: z.string().optional(),
-  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  // Cashfree. Absent in dev/test, in which case payments run in MOCK mode.
+  CASHFREE_APP_ID: z.string().optional(),
+  CASHFREE_SECRET_KEY: z.string().optional(),
+  CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
 
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
@@ -69,10 +69,17 @@ export function getEnv(): ServerEnv {
   return cached;
 }
 
-/** True when real Razorpay credentials are configured. */
+/** True when real Cashfree credentials are configured. */
 export function isPaymentGatewayLive(): boolean {
   const env = getEnv();
-  return Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+  return Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY);
+}
+
+/** Cashfree's API base URL for the configured environment. */
+export function cashfreeApiBase(): string {
+  return getEnv().CASHFREE_ENV === "production"
+    ? "https://api.cashfree.com/pg"
+    : "https://sandbox.cashfree.com/pg";
 }
 
 /**

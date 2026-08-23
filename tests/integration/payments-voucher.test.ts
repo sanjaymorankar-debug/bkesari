@@ -15,7 +15,7 @@ import {
   createTopUpOrder,
   creditFromWebhook,
   signForMock,
-  verifyAndCreditTopUp,
+  settleMockTopUp,
 } from "@/server/services/payments";
 import { createPayment, createUserWithWallet, createVoucher, resetDatabase } from "../helpers/fixtures";
 
@@ -29,7 +29,7 @@ describe("wallet top-up (TEST 1)", () => {
     expect(intent.mock).toBe(true);
 
     const paymentId = `mock_pay_${intent.gatewayOrderId.slice(-12)}`;
-    const result = await verifyAndCreditTopUp({
+    const result = await settleMockTopUp({
       userId: user.id,
       gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId,
@@ -44,7 +44,7 @@ describe("wallet top-up (TEST 1)", () => {
     const intent = await createTopUpOrder(user.id, 100_000);
 
     await expect(
-      verifyAndCreditTopUp({
+      settleMockTopUp({
         userId: user.id,
         gatewayOrderId: intent.gatewayOrderId,
         gatewayPaymentId: "pay_forged",
@@ -66,11 +66,11 @@ describe("duplicate/replayed payment confirmation (TEST 4)", () => {
     const paymentId = `mock_pay_${intent.gatewayOrderId.slice(-12)}`;
     const signature = signForMock(intent.gatewayOrderId, paymentId);
 
-    const first = await verifyAndCreditTopUp({
+    const first = await settleMockTopUp({
       userId: user.id, gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId, signature,
     });
-    const second = await verifyAndCreditTopUp({
+    const second = await settleMockTopUp({
       userId: user.id, gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId, signature,
     });
@@ -90,7 +90,7 @@ describe("duplicate/replayed payment confirmation (TEST 4)", () => {
     // callback (or vice versa; order doesn't matter to the guarantee).
     const [webhookResult, clientResult] = await Promise.all([
       creditFromWebhook(intent.gatewayOrderId, paymentId),
-      verifyAndCreditTopUp({
+      settleMockTopUp({
         userId: user.id, gatewayOrderId: intent.gatewayOrderId,
         gatewayPaymentId: paymentId, signature,
       }),
@@ -117,7 +117,7 @@ describe("top-up with a voucher (§18–§20, TEST 33)", () => {
     expect(stored.voucherCode).toBe("FEST10");
 
     const paymentId = `mock_pay_${intent.gatewayOrderId.slice(-12)}`;
-    const result = await verifyAndCreditTopUp({
+    const result = await settleMockTopUp({
       userId: user.id,
       gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId,
@@ -146,7 +146,7 @@ describe("top-up with a voucher (§18–§20, TEST 33)", () => {
     void voucher;
 
     const paymentId = `mock_pay_${intent.gatewayOrderId.slice(-12)}`;
-    const result = await verifyAndCreditTopUp({
+    const result = await settleMockTopUp({
       userId: user.id,
       gatewayOrderId: intent.gatewayOrderId,
       gatewayPaymentId: paymentId,

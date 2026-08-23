@@ -61,9 +61,9 @@ export default function WalletTermsPage() {
 
       <h2>Adding funds</h2>
       <p>
-        You add funds to the wallet via Razorpay. All top-ups are verified
-        against Razorpay before your balance is credited — a payment that has
-        not been confirmed by Razorpay never increases your balance.
+        You add funds to the wallet via Cashfree. All top-ups are verified
+        against Cashfree before your balance is credited — a payment that has
+        not been confirmed by Cashfree never increases your balance.
       </p>
 
       <h2>Expiry and account closure</h2>

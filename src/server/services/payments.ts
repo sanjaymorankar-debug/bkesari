@@ -1,23 +1,31 @@
 /**
- * Payment gateway integration — Razorpay (requirements §18, §20, §48).
+ * Payment gateway integration — Cashfree (requirements §18, §20, §48).
  *
- * The rule that matters: **the wallet is credited only after a signature is
- * verified server-side.** A client claiming "payment succeeded" proves nothing.
+ * The rule that matters: **the wallet is credited only after the gateway
+ * itself confirms payment server-to-server.** A client claiming "payment
+ * succeeded" proves nothing. Cashfree's checkout widget does not hand the
+ * browser a payment id/signature pair to verify locally the way some gateways
+ * do — instead, after checkout the server independently calls Cashfree's Get
+ * Order API using its own credentials and trusts only what THAT call reports.
+ * The webhook (HMAC-SHA256 over `timestamp + rawBody`, base64) is the
+ * server-to-server safety net for when the customer's browser never reports
+ * back at all.
  *
  * Replay protection is structural rather than procedural:
- *   - `payments.gateway_payment_id` is UNIQUE, so the same Razorpay payment can
+ *   - `payments.gateway_payment_id` is UNIQUE, so the same Cashfree payment can
  *     never be recorded twice.
  *   - The wallet credit uses `topup:<paymentId>` as its idempotency key, so even
- *     if the callback and the webhook both fire, only one credit is applied.
+ *     if the client-invoked check and the webhook both fire, only one credit is
+ *     applied.
  *
- * With no Razorpay credentials configured the service runs in MOCK mode so the
+ * With no Cashfree credentials configured the service runs in MOCK mode so the
  * whole flow — including verification — is exercisable in development and tests.
  */
 import crypto from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 
-import { getEnv, isPaymentGatewayLive } from "@/lib/env";
+import { cashfreeApiBase, getEnv, isPaymentGatewayLive } from "@/lib/env";
 import {
   conflict,
   notFound,
@@ -25,22 +33,24 @@ import {
   validationFailed,
 } from "@/lib/errors";
 import { db } from "@/server/db";
-import { payments, type Payment } from "@/server/db/schema";
+import { payments, users, type Payment } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getOrCreateWallet, applyWalletMutation } from "./wallet";
 import { previewVoucher, redeemVoucher } from "./vouchers";
 
-/** Razorpay's floor is ₹1. */
+/** Minimum top-up, in paise. */
 const MIN_TOPUP_PAISE = 100;
 /** Sanity ceiling to blunt fat-finger and abuse cases. */
 const MAX_TOPUP_PAISE = 10_000_000; // ₹1,00,000
 
 export interface CreateTopUpResult {
   payment: Payment;
-  /** Passed to the Razorpay checkout widget. */
   gatewayOrderId: string;
-  keyId: string | null;
+  /** Passed to the Cashfree checkout widget. Null in mock mode. */
+  paymentSessionId: string | null;
+  /** Which Cashfree environment the widget should talk to. */
+  cashfreeMode: "sandbox" | "production";
   amountPaise: number;
   currency: string;
   mock: boolean;
@@ -77,18 +87,23 @@ export async function createTopUpOrder(
     ? await previewVoucher(voucherCode, amountPaise, userId)
     : null;
 
-  const env = getEnv();
   const live = isPaymentGatewayLive();
 
-  const gatewayOrderId = live
-    ? await createRazorpayOrder(amountPaise, userId)
-    : `mock_order_${crypto.randomUUID()}`;
+  let gatewayOrderId: string;
+  let paymentSessionId: string | null = null;
+  if (live) {
+    const order = await createCashfreeOrder(amountPaise, userId);
+    gatewayOrderId = order.gatewayOrderId;
+    paymentSessionId = order.paymentSessionId;
+  } else {
+    gatewayOrderId = `mock_order_${crypto.randomUUID()}`;
+  }
 
   const [payment] = await db
     .insert(payments)
     .values({
       userId,
-      gateway: live ? "RAZORPAY" : "MOCK",
+      gateway: live ? "CASHFREE" : "MOCK",
       gatewayOrderId,
       amountPaise,
       currency: "INR",
@@ -101,7 +116,8 @@ export async function createTopUpOrder(
   return {
     payment,
     gatewayOrderId,
-    keyId: env.RAZORPAY_KEY_ID ?? null,
+    paymentSessionId,
+    cashfreeMode: getEnv().CASHFREE_ENV,
     amountPaise,
     currency: "INR",
     mock: !live,
@@ -117,13 +133,6 @@ export async function createTopUpOrder(
   };
 }
 
-export interface VerifyTopUpInput {
-  userId: string;
-  gatewayOrderId: string;
-  gatewayPaymentId: string;
-  signature: string;
-}
-
 export interface VerifyTopUpResult {
   payment: Payment;
   balancePaise: number;
@@ -133,21 +142,22 @@ export interface VerifyTopUpResult {
 }
 
 /**
- * Verifies a Razorpay callback and credits the wallet.
- *
- * Order of operations is deliberate: verify the signature FIRST, then mark the
- * payment, then credit. A forged callback never reaches the wallet.
+ * Shared prefix for both verification entry points below: look up the
+ * payment, check ownership, and short-circuit if it's already settled or
+ * dead. Returns `null` when the caller should stop and return the given
+ * result as-is; otherwise returns the live `payment` row to keep verifying.
  */
-export async function verifyAndCreditTopUp(
-  input: VerifyTopUpInput,
-): Promise<VerifyTopUpResult> {
+async function loadVerifiablePayment(
+  userId: string,
+  gatewayOrderId: string,
+): Promise<{ payment: Payment; alreadySettled: VerifyTopUpResult | null }> {
   const payment = await db.query.payments.findFirst({
-    where: eq(payments.gatewayOrderId, input.gatewayOrderId),
+    where: eq(payments.gatewayOrderId, gatewayOrderId),
   });
   if (!payment) throw notFound("Payment");
 
   // A payment may only ever be settled by the user who initiated it.
-  if (payment.userId !== input.userId) {
+  if (payment.userId !== userId) {
     throw paymentVerificationFailed("This payment does not belong to you.");
   }
 
@@ -155,13 +165,16 @@ export async function verifyAndCreditTopUp(
   // the race. Return the existing state rather than re-crediting.
   if (payment.status === "SUCCESS") {
     const wallet = await db.query.wallets.findFirst({
-      where: (w, { eq: equals }) => equals(w.userId, input.userId),
+      where: (w, { eq: equals }) => equals(w.userId, userId),
     });
     return {
       payment,
-      balancePaise: wallet?.balancePaise ?? 0,
-      alreadyProcessed: true,
-      voucherBonusPaise: 0,
+      alreadySettled: {
+        payment,
+        balancePaise: wallet?.balancePaise ?? 0,
+        alreadyProcessed: true,
+        voucherBonusPaise: 0,
+      },
     };
   }
 
@@ -169,7 +182,67 @@ export async function verifyAndCreditTopUp(
     throw conflict("This payment can no longer be completed.");
   }
 
-  const signatureValid = verifySignature(
+  return { payment, alreadySettled: null };
+}
+
+/**
+ * Confirms a live Cashfree order and credits the wallet.
+ *
+ * Nothing the client sends is trusted here beyond which order to check —
+ * the actual proof of payment comes from calling Cashfree's own Get Order
+ * API server-to-server. Order of operations is deliberate: confirm payment
+ * FIRST, then mark the payment, then credit. A forged callback never reaches
+ * the wallet, because there is nothing to forge — the client cannot make
+ * Cashfree report a payment that didn't happen.
+ */
+export async function verifyAndCreditTopUp(input: {
+  userId: string;
+  gatewayOrderId: string;
+}): Promise<VerifyTopUpResult> {
+  const { payment, alreadySettled } = await loadVerifiablePayment(
+    input.userId,
+    input.gatewayOrderId,
+  );
+  if (alreadySettled) return alreadySettled;
+
+  const confirmed = await confirmCashfreeOrderPaid(input.gatewayOrderId);
+  if (!confirmed) {
+    await db
+      .update(payments)
+      .set({
+        status: "FAILED",
+        failureReason: "Cashfree did not confirm payment for this order",
+        updatedAt: new Date(),
+      })
+      .where(eq(payments.id, payment.id));
+    throw paymentVerificationFailed();
+  }
+
+  return finalizeVerifiedPayment(payment, {
+    gatewayPaymentId: confirmed.cfPaymentId,
+    gatewaySignature: null,
+  });
+}
+
+/**
+ * Dev-only counterpart to `verifyAndCreditTopUp` for MOCK-mode payments,
+ * which have no real Cashfree order to ask. Still verifies a genuine HMAC
+ * (via `signForMock`) rather than crediting unconditionally, so the mock
+ * flow exercises real verification logic end to end — see `signForMock`.
+ */
+export async function settleMockTopUp(input: {
+  userId: string;
+  gatewayOrderId: string;
+  gatewayPaymentId: string;
+  signature: string;
+}): Promise<VerifyTopUpResult> {
+  const { payment, alreadySettled } = await loadVerifiablePayment(
+    input.userId,
+    input.gatewayOrderId,
+  );
+  if (alreadySettled) return alreadySettled;
+
+  const signatureValid = verifyMockSignature(
     input.gatewayOrderId,
     input.gatewayPaymentId,
     input.signature,
@@ -179,7 +252,7 @@ export async function verifyAndCreditTopUp(
       .update(payments)
       .set({
         status: "FAILED",
-        failureReason: "Signature verification failed",
+        failureReason: "Mock signature verification failed",
         updatedAt: new Date(),
       })
       .where(eq(payments.id, payment.id));
@@ -194,9 +267,10 @@ export async function verifyAndCreditTopUp(
 
 /**
  * Marks a payment SUCCESS and credits the wallet — the one code path both
- * `verifyAndCreditTopUp` (client-invoked, checkout-signature verified) and
- * the Razorpay webhook (server-to-server, webhook-signature verified) funnel
- * into once THEIR OWN authentication has passed. Whichever one reaches here
+ * `verifyAndCreditTopUp` (client-invoked, confirmed via Cashfree's Get Order
+ * API) and the Cashfree webhook (server-to-server, webhook-signature
+ * verified) funnel into once THEIR OWN authentication has passed. Whichever
+ * one reaches here
  * first wins; the other's replay is absorbed by the SUCCESS-status check in
  * its own caller, or by the UNIQUE index on `payments.gateway_payment_id` /
  * the wallet idempotency key if both race past that check simultaneously.
@@ -317,8 +391,8 @@ async function finalizeVerifiedPayment(
  * Server-to-server confirmation path (§3, §4) — the safety net for when a
  * customer's browser never calls `verifyAndCreditTopUp` (closed tab, network
  * drop after paying). The webhook's OWN signature over the raw request body
- * is what authenticates this call; there is no checkout-widget signature to
- * check here because Razorpay's webhook payload never contains one.
+ * is what authenticates this call — the route handler verifies it before
+ * this function is ever reached.
  */
 export async function creditFromWebhook(
   gatewayOrderId: string,
@@ -349,22 +423,19 @@ export async function creditFromWebhook(
 }
 
 /**
- * HMAC-SHA256 over `order_id|payment_id`, per Razorpay's specification.
+ * HMAC-SHA256 over `order_id|payment_id`, keyed on the mock secret. This is
+ * NOT how Cashfree does live verification (see `confirmCashfreeOrderPaid`) —
+ * it exists purely so MOCK-mode payments (no real gateway to ask) still go
+ * through genuine signature verification rather than an unconditional credit.
  * Compared in constant time to avoid leaking the expected digest by timing.
  */
-export function verifySignature(
+export function verifyMockSignature(
   orderId: string,
   paymentId: string,
   signature: string,
 ): boolean {
-  // Keyed off live-mode detection rather than a `??` fallback, so a blank or
-  // partially configured credential can never silently sign with "".
-  const secret = isPaymentGatewayLive()
-    ? getEnv().RAZORPAY_KEY_SECRET!
-    : MOCK_SECRET;
-
   const expected = crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", MOCK_SECRET)
     .update(`${orderId}|${paymentId}`)
     .digest("hex");
 
@@ -375,20 +446,24 @@ export function verifySignature(
 }
 
 /**
- * Verifies a Razorpay webhook body. Webhooks sign the raw payload rather than
- * the order/payment pair, so this is a separate function on purpose.
+ * Verifies a Cashfree webhook body: `HMAC-SHA256(timestamp + rawBody)`,
+ * base64-encoded, keyed on the same client secret used to authenticate API
+ * calls (Cashfree has no separate webhook-only secret). The timestamp is
+ * folded into the signed message — not just compared for freshness — so a
+ * replayed-with-a-new-timestamp forgery still fails signature verification.
  */
 export function verifyWebhookSignature(
   rawBody: string,
+  timestamp: string,
   signature: string,
 ): boolean {
-  const secret = getEnv().RAZORPAY_WEBHOOK_SECRET;
+  const secret = getEnv().CASHFREE_SECRET_KEY;
   if (!secret) return false;
 
   const expected = crypto
     .createHmac("sha256", secret)
-    .update(rawBody)
-    .digest("hex");
+    .update(timestamp + rawBody)
+    .digest("base64");
 
   const a = Buffer.from(expected, "utf8");
   const b = Buffer.from(signature, "utf8");
@@ -397,11 +472,11 @@ export function verifyWebhookSignature(
 }
 
 /**
- * Development/test secret. Only ever used when no real credentials are set, so
- * the mock flow still exercises genuine HMAC verification rather than skipping
- * the check entirely.
+ * Development/test secret. Only ever used in MOCK mode, so the mock flow
+ * still exercises genuine HMAC verification rather than skipping the check
+ * entirely.
  */
-const MOCK_SECRET = "mock_razorpay_secret";
+const MOCK_SECRET = "mock_cashfree_secret";
 
 /** Produces a valid signature for the mock gateway (dev and tests only). */
 export function signForMock(orderId: string, paymentId: string): string {
@@ -414,25 +489,87 @@ export function signForMock(orderId: string, paymentId: string): string {
     .digest("hex");
 }
 
-async function createRazorpayOrder(
+const CASHFREE_API_VERSION = "2023-08-01";
+
+function cashfreeHeaders(): Record<string, string> {
+  const env = getEnv();
+  return {
+    "Content-Type": "application/json",
+    "x-api-version": CASHFREE_API_VERSION,
+    "x-client-id": env.CASHFREE_APP_ID!,
+    "x-client-secret": env.CASHFREE_SECRET_KEY!,
+  };
+}
+
+async function createCashfreeOrder(
   amountPaise: number,
   userId: string,
-): Promise<string> {
-  const env = getEnv();
-  // Imported lazily so the SDK is never pulled into a bundle that does not need it.
-  const Razorpay = (await import("razorpay")).default;
-  const client = new Razorpay({
-    key_id: env.RAZORPAY_KEY_ID!,
-    key_secret: env.RAZORPAY_KEY_SECRET!,
+): Promise<{ gatewayOrderId: string; paymentSessionId: string }> {
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) throw notFound("User");
+
+  const orderId = `topup_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+  const response = await fetch(`${cashfreeApiBase()}/orders`, {
+    method: "POST",
+    headers: cashfreeHeaders(),
+    body: JSON.stringify({
+      order_id: orderId,
+      // Cashfree takes order_amount in rupees, not paise.
+      order_amount: amountPaise / 100,
+      order_currency: "INR",
+      customer_details: {
+        customer_id: userId,
+        customer_email: user.email,
+        // Cashfree requires a phone number; fall back to a placeholder for
+        // customers who never supplied one (the checkout modal itself does
+        // not depend on it being real, unlike SMS-based UPI collect flows).
+        customer_phone: user.phone ?? "9999999999",
+      },
+    }),
   });
 
-  const order = await client.orders.create({
-    amount: amountPaise,
-    currency: "INR",
-    receipt: `topup_${Date.now()}`,
-    notes: { userId, purpose: "WALLET_TOPUP" },
+  if (!response.ok) {
+    console.error("[cashfree] order creation failed", response.status, await response.text());
+    throw new Error("Could not start the payment with Cashfree.");
+  }
+
+  const order = (await response.json()) as {
+    order_id: string;
+    payment_session_id: string;
+  };
+  return { gatewayOrderId: order.order_id, paymentSessionId: order.payment_session_id };
+}
+
+/**
+ * Server-to-server proof of payment for the client-invoked verify path
+ * (`verifyAndCreditTopUp`). Calls Cashfree's "Get Payments for an Order" API
+ * and looks for an attempt with `payment_status === "SUCCESS"` — this is the
+ * one thing in the whole flow that is never taken on the client's word.
+ */
+async function confirmCashfreeOrderPaid(
+  gatewayOrderId: string,
+): Promise<{ cfPaymentId: string } | null> {
+  const response = await fetch(`${cashfreeApiBase()}/orders/${gatewayOrderId}/payments`, {
+    method: "GET",
+    headers: cashfreeHeaders(),
   });
-  return order.id;
+
+  if (!response.ok) {
+    console.error(
+      "[cashfree] payment status check failed",
+      gatewayOrderId,
+      response.status,
+      await response.text(),
+    );
+    return null;
+  }
+
+  const attempts = (await response.json()) as Array<{
+    cf_payment_id: string;
+    payment_status: string;
+  }>;
+  const successful = attempts.find((a) => a.payment_status === "SUCCESS");
+  return successful ? { cfPaymentId: String(successful.cf_payment_id) } : null;
 }
 
 export async function listPayments(userId: string): Promise<Payment[]> {

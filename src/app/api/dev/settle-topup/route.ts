@@ -5,7 +5,7 @@
  * verify-then-credit path production uses, so the flow under test is the real
  * one rather than a shortcut that skips verification.
  *
- * Returns 404 in production and whenever live Razorpay credentials are present.
+ * Returns 404 in production and whenever live Cashfree credentials are present.
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
-import { signForMock, verifyAndCreditTopUp } from "@/server/services/payments";
+import { settleMockTopUp, signForMock } from "@/server/services/payments";
 
 const schema = z.object({ gatewayOrderId: z.string().min(1) });
 
@@ -31,7 +31,7 @@ export const POST = route(async (request: NextRequest) => {
   const { gatewayOrderId } = await parseBody(request, schema);
   const gatewayPaymentId = `mock_pay_${gatewayOrderId.slice(-12)}`;
 
-  const result = await verifyAndCreditTopUp({
+  const result = await settleMockTopUp({
     userId: user.id,
     gatewayOrderId,
     gatewayPaymentId,

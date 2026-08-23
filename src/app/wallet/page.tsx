@@ -44,8 +44,6 @@ export default async function WalletPage() {
           description: t.description,
           createdAt: t.createdAt.toISOString(),
         }))}
-        customerName={user.name}
-        customerEmail={user.email || null}
       />
     </>
   );

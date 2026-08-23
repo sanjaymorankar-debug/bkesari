@@ -115,8 +115,8 @@ export async function getComplianceChecklist(): Promise<ComplianceItem[]> {
     area: "Payment gateway configuration",
     status: isPaymentGatewayLive() ? "ACTIVE" : "MISSING",
     detail: isPaymentGatewayLive()
-      ? "Live Razorpay credentials are configured."
-      : "RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are not set — payments run in mock mode.",
+      ? "Live Cashfree credentials are configured."
+      : "CASHFREE_APP_ID / CASHFREE_SECRET_KEY are not set — payments run in mock mode.",
   });
 
   items.push({

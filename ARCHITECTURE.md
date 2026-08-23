@@ -13,7 +13,7 @@ Fresh greenfield build. No code reused from any prior project.
 | Auth | Auth.js (NextAuth v5) + Google OAuth | Mandated. Database sessions, server-side role resolution. |
 | Validation | Zod v4 | Every external input parsed at the server boundary. |
 | Client state | Zustand (UI only) | Cart/wallet/subscription state is **server-owned**; Zustand holds ephemeral UI state only. |
-| Payments | Razorpay | India-first: UPI, cards, netbanking. Server-side HMAC signature verification. |
+| Payments | Cashfree | India-first: UPI, cards, netbanking. Server-side confirmation via Cashfree's Get Order API; webhook HMAC signature verification. |
 | Tests | Vitest (unit + integration against real Postgres), Playwright (E2E) | Integration tests run real SQL so concurrency/idempotency claims are actually proven. |
 
 ### 1.1 Deviation: Drizzle instead of Prisma
@@ -108,8 +108,9 @@ Carts spanning multiple shops are **split into one order per shop** at checkout.
   on the unique index and returns the original transaction instead of double-charging.
 - The DB `CHECK` constraint is the last line of defence — a negative balance is impossible even if
   application logic is wrong.
-- Wallet is credited **only** after Razorpay signature verification succeeds server-side.
-  `payments.gateway_payment_id` is `UNIQUE`, so a replayed webhook cannot credit twice.
+- Wallet is credited **only** after the server independently confirms payment with
+  Cashfree's own API (never from anything the client reports). `payments.gateway_payment_id`
+  is `UNIQUE`, so a replayed webhook cannot credit twice.
 
 ## 7. Subscription architecture
 

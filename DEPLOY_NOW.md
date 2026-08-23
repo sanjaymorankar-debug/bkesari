@@ -98,9 +98,10 @@ openssl rand -hex 32      # CRON_SECRET
 | `APP_TIMEZONE` | `Asia/Kolkata` |
 | `SUBSCRIPTION_CUTOFF_HOUR` | `20` |
 
-Leave the `RAZORPAY_*` variables **unset on staging** — the app then runs in
+Leave the `CASHFREE_*` variables **unset on staging** — the app then runs in
 mock payment mode, so you can exercise the full wallet flow without moving real
-money. Set real keys only on production.
+money. Set real keys only on production. (`CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`,
+`CASHFREE_ENV=sandbox|production`.)
 
 Then redeploy so the app picks the variables up.
 
@@ -209,8 +210,8 @@ git push origin main
 Before production, in addition to the above:
 
 - A **separate** Neon database (never share one with staging)
-- Real `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` — confirm the app is not in
-  mock payment mode
+- Real `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` with `CASHFREE_ENV=production`
+  — confirm the app is not in mock payment mode
 - `AUTH_URL=https://bkesari.com` and the matching Google redirect URI
 - Backups and the ledger-integrity checks from `DEPLOYMENT.md §7`
 

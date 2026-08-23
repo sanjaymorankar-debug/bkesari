@@ -44,7 +44,7 @@ export default function TermsPage() {
 
       <h2>4. Payments</h2>
       <p>
-        Payments are processed via Razorpay. See our{" "}
+        Payments are processed via Cashfree. See our{" "}
         <a href="/legal/wallet-terms">Wallet Terms</a> for how the in-app
         wallet works and our{" "}
         <a href="/legal/refund-policy">Refund &amp; Cancellation Policy</a>{" "}

@@ -1,9 +1,11 @@
 /**
- * Verifies a gateway callback and credits the wallet (requirements §18, §20).
+ * Confirms a Cashfree order and credits the wallet (requirements §18, §20).
  *
- * The signature is checked server-side before a single paisa moves, and the
- * credit is idempotent on the gateway payment id, so a replayed callback is a
- * no-op rather than a double credit.
+ * Nothing the client posts here is trusted as proof of payment — only which
+ * order to check. The actual confirmation comes from a server-to-server call
+ * to Cashfree's own API (see `verifyAndCreditTopUp`), and the credit is
+ * idempotent on the gateway payment id, so a replayed call is a no-op rather
+ * than a double credit.
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -15,9 +17,7 @@ import { PERMISSIONS } from "@/server/authz/permissions";
 import { verifyAndCreditTopUp } from "@/server/services/payments";
 
 const schema = z.object({
-  razorpay_order_id: z.string().min(1),
-  razorpay_payment_id: z.string().min(1),
-  razorpay_signature: z.string().min(1),
+  gatewayOrderId: z.string().min(1),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -27,9 +27,7 @@ export const POST = route(async (request: NextRequest) => {
   const body = await parseBody(request, schema);
   const result = await verifyAndCreditTopUp({
     userId: user.id,
-    gatewayOrderId: body.razorpay_order_id,
-    gatewayPaymentId: body.razorpay_payment_id,
-    signature: body.razorpay_signature,
+    gatewayOrderId: body.gatewayOrderId,
   });
 
   return ok({
