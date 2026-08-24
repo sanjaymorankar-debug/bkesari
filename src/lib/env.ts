@@ -31,6 +31,17 @@ const serverEnvSchema = z.object({
   CASHFREE_SECRET_KEY: z.string().optional(),
   CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
 
+  /**
+   * Google Maps Platform — server-side Geocoding API key, used exactly once
+   * per shop/address "Confirm location" action (see geocoding.ts). Deliberately
+   * a SEPARATE key from NEXT_PUBLIC_GOOGLE_MAPS_API_KEY (the browser-restricted
+   * one the map picker loads client-side for Autocomplete/map display) — this
+   * one should be IP-restricted, not domain-restricted, since it's never sent
+   * to a browser. Absent in dev/test, in which case location capture falls
+   * back to manual entry (no map, no verification) rather than failing.
+   */
+  GOOGLE_MAPS_SERVER_API_KEY: z.string().optional(),
+
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
 
@@ -80,6 +91,11 @@ export function cashfreeApiBase(): string {
   return getEnv().CASHFREE_ENV === "production"
     ? "https://api.cashfree.com/pg"
     : "https://sandbox.cashfree.com/pg";
+}
+
+/** True when the server-side Geocoding key is configured. */
+export function isGeocodingConfigured(): boolean {
+  return Boolean(getEnv().GOOGLE_MAPS_SERVER_API_KEY);
 }
 
 /**

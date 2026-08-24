@@ -420,7 +420,15 @@ export const addresses = pgTable(
     pincode: text("pincode").notNull(),
     latitude: text("latitude"),
     longitude: text("longitude"),
+    landmark: text("landmark"),
+    deliveryInstructions: text("delivery_instructions"),
     isDefault: boolean("is_default").notNull().default(false),
+    /** Same provenance/verification pattern as shops — see schema.ts's shops table comment. */
+    locationVerified: boolean("location_verified").notNull().default(false),
+    locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
+    locationSource: text("location_source", {
+      enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -527,6 +535,24 @@ export const shops = pgTable(
      * means the platform default (Refund & Cancellation Policy) applies.
      */
     returnPolicyText: text("return_policy_text"),
+
+    /* ------------------------------------------------- delivery location.
+     * `latitude`/`longitude` above are the shop's main location. Pickup can
+     * differ (e.g. a mall unit vs. its service entrance), so it gets its own
+     * pair rather than overloading the main one. Google Geocoding is called
+     * exactly once, when the merchant clicks "Confirm location" — everything
+     * downstream (search, maps, delivery distance) reads these stored
+     * columns, never re-geocodes. See src/server/services/geocoding.ts. */
+    pickupLatitude: text("pickup_latitude"),
+    pickupLongitude: text("pickup_longitude"),
+    pickupInstructions: text("pickup_instructions"),
+    landmark: text("landmark"),
+    locationVerified: boolean("location_verified").notNull().default(false),
+    locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
+    /** How `latitude`/`longitude` were obtained — provenance for the compliance/audit trail. */
+    locationSource: text("location_source", {
+      enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
+    }),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -841,6 +867,10 @@ export const orders = pgTable(
       area?: string | null;
       city: string;
       pincode: string;
+      /** Carried forward from the address at order time — delivery-assignment
+       * (Slice C) needs the customer's coordinates without re-geocoding. */
+      latitude?: string | null;
+      longitude?: string | null;
     } | null>(),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
@@ -1861,6 +1891,35 @@ export const auditLogs = pgTable(
   ],
 );
 
+/**
+ * SKU-usage log for Google Maps Platform calls (delivery-system Part 58
+ * follow-up — cost-optimization architecture). Written exactly once per
+ * server-side Geocoding call, never per client-side Autocomplete keystroke
+ * or map render — those never touch the server. Lets an admin see whether
+ * "call Google exactly once per location" is actually being honoured.
+ */
+export const mapsApiCallLog = pgTable(
+  "maps_api_call_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    service: text("service", { enum: ["GEOCODING"] }).notNull(),
+    purpose: text("purpose").notNull(),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    success: boolean("success").notNull(),
+    responseTimeMs: integer("response_time_ms"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("maps_api_call_log_service_idx").on(t.service),
+    index("maps_api_call_log_created_idx").on(t.createdAt),
+    index("maps_api_call_log_entity_idx").on(t.entityType, t.entityId),
+  ],
+);
+
 /* ------------------------------------------------------------ inference */
 
 export type User = typeof users.$inferSelect;
@@ -1890,6 +1949,8 @@ export type SubscriptionDailyOverride =
   typeof subscriptionDailyOverrides.$inferSelect;
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+export type Address = typeof addresses.$inferSelect;
+export type MapsApiCallLog = typeof mapsApiCallLog.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RegistrationFee = typeof registrationFees.$inferSelect;
 export type ReferralCode = typeof referralCodes.$inferSelect;

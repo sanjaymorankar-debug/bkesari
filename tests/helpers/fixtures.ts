@@ -29,6 +29,7 @@ export async function resetDatabase(): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
       grievances, user_consents,
+      maps_api_call_log,
       audit_logs, notifications,
       price_update_requests, price_update_batches,
       excel_upload_items, excel_uploads,
@@ -42,6 +43,7 @@ export async function resetDatabase(): Promise<void> {
       inventory_movements, product_price_history, shop_products,
       products, product_categories,
       shop_classification_history, shops,
+      addresses,
       sessions, accounts, users
     RESTART IDENTITY CASCADE
   `);

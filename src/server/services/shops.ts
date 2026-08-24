@@ -24,6 +24,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { uniqueSlug } from "./catalogue";
+import { resolveLocationVerification } from "./geocoding";
 import { attributeShopToCode } from "./referrals";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 
@@ -40,6 +41,11 @@ export interface RegisterShopInput {
   pincode: string;
   latitude?: string | null;
   longitude?: string | null;
+  /** Pickup point, if it differs from the main location (e.g. a mall unit vs. its service entrance). */
+  pickupLatitude?: string | null;
+  pickupLongitude?: string | null;
+  pickupInstructions?: string | null;
+  landmark?: string | null;
   shopType: ShopTypeKey;
   logoUrl?: string | null;
   photos?: string[];
@@ -84,6 +90,16 @@ export async function registerShop(
   if (!/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
   }
+
+  // Never trust a caller-supplied "verified" flag — status is always
+  // computed here from whether Google actually confirmed the pin.
+  const { locationVerified, locationVerifiedAt, locationSource } =
+    await resolveLocationVerification(
+      input.latitude != null ? Number(input.latitude) : null,
+      input.longitude != null ? Number(input.longitude) : null,
+      "shop_registration",
+      "shop",
+    );
 
   const privileged = options.privileged === true;
   const ownerId = privileged && input.ownerId ? input.ownerId : actor.id;
@@ -131,6 +147,13 @@ export async function registerShop(
       pincode: input.pincode,
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
+      pickupLatitude: input.pickupLatitude ?? null,
+      pickupLongitude: input.pickupLongitude ?? null,
+      pickupInstructions: input.pickupInstructions ?? null,
+      landmark: input.landmark ?? null,
+      locationVerified,
+      locationVerifiedAt,
+      locationSource,
       shopType: input.shopType,
       logoUrl: input.logoUrl ?? null,
       photos: input.photos ?? [],
@@ -446,6 +469,10 @@ export interface UpdateShopInput {
   pincode?: string;
   latitude?: string | null;
   longitude?: string | null;
+  pickupLatitude?: string | null;
+  pickupLongitude?: string | null;
+  pickupInstructions?: string | null;
+  landmark?: string | null;
   shopType?: ShopTypeKey;
   logoUrl?: string | null;
   photos?: string[];
@@ -475,9 +502,32 @@ export async function updateShop(
     .where(and(eq(shops.id, shopId), isNull(shops.deletedAt)));
   if (!current) throw notFound("Shop");
 
+  // Only re-verify (and only touch the verification columns) when the main
+  // coordinates actually moved — per the "the old location must not continue
+  // to be used" rule, this is the one path that can flip locationVerified
+  // back to false: a changed pin that fails/skips re-verification means the
+  // shop is no longer using a confirmed location for new orders.
+  const coordinatesChanged =
+    input.latitude !== undefined &&
+    input.longitude !== undefined &&
+    (input.latitude !== current.latitude || input.longitude !== current.longitude);
+  const verification = coordinatesChanged
+    ? await resolveLocationVerification(
+        input.latitude != null ? Number(input.latitude) : null,
+        input.longitude != null ? Number(input.longitude) : null,
+        "shop_location_update",
+        "shop",
+        shopId,
+      )
+    : null;
+
   const [updated] = await db
     .update(shops)
-    .set({ ...input, updatedAt: new Date() })
+    .set({
+      ...input,
+      ...(verification ?? {}),
+      updatedAt: new Date(),
+    })
     .where(eq(shops.id, shopId))
     .returning();
 
@@ -487,8 +537,20 @@ export async function updateShop(
     action: AUDIT_ACTIONS.SHOP_UPDATED,
     entityType: "shop",
     entityId: shopId,
-    previousValue: { openingHours: current.openingHours, shopType: current.shopType },
-    newValue: { openingHours: updated.openingHours, shopType: updated.shopType },
+    previousValue: {
+      openingHours: current.openingHours,
+      shopType: current.shopType,
+      ...(coordinatesChanged
+        ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
+        : {}),
+    },
+    newValue: {
+      openingHours: updated.openingHours,
+      shopType: updated.shopType,
+      ...(coordinatesChanged
+        ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
+        : {}),
+    },
   });
   return updated;
 }

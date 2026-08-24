@@ -11,11 +11,23 @@ import {
   Card,
   ClassificationBadge,
   EmptyState,
+  Field,
   LinkButton,
   Money,
+  inputClass,
 } from "@/components/ui";
 import { formatQuantity } from "@/lib/money";
 import type { CartSummary } from "@/server/services/cart";
+
+export interface CheckoutAddress {
+  id: string;
+  label: string | null;
+  line1: string;
+  area: string | null;
+  city: string;
+  pincode: string;
+  isDefault: boolean;
+}
 
 /**
  * Cart and checkout (§17, §22, §23).
@@ -26,14 +38,19 @@ import type { CartSummary } from "@/server/services/cart";
 export function CartView({
   cart,
   walletBalancePaise,
+  addresses,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
+  addresses: CheckoutAddress[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestId] = useState(() => crypto.randomUUID());
+  const [addressId, setAddressId] = useState<string | null>(
+    addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? null,
+  );
 
   const affordable = walletBalancePaise >= cart.grandTotalPaise;
   const shortfall = Math.max(0, cart.grandTotalPaise - walletBalancePaise);
@@ -60,7 +77,7 @@ export function CartView({
     const response = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId }),
+      body: JSON.stringify({ requestId, addressId }),
     });
     const payload = await response.json().catch(() => null);
     setBusy(false);
@@ -197,6 +214,33 @@ export function CartView({
               <span className="text-ink-600">Wallet balance</span>
               <Money paise={walletBalancePaise} className="font-medium" />
             </div>
+          </div>
+
+          <div className="mt-4">
+            {addresses.length === 0 ? (
+              <Alert tone="info">
+                No saved delivery address.{" "}
+                <a href="/profile/addresses" className="underline">
+                  Add one
+                </a>{" "}
+                before checking out.
+              </Alert>
+            ) : (
+              <Field label="Deliver to">
+                <select
+                  className={inputClass}
+                  value={addressId ?? ""}
+                  onChange={(e) => setAddressId(e.target.value || null)}
+                >
+                  {addresses.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label ? `${a.label} — ` : ""}
+                      {a.line1}, {[a.area, a.city].filter(Boolean).join(", ")} — {a.pincode}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </div>
 
           {cart.hasUnavailableItems ? (

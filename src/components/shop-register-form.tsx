@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
+import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { rupeesToPaise } from "@/lib/money";
 import { SHOP_TYPES } from "@/lib/shop-types";
 
@@ -20,6 +21,13 @@ export function ShopRegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [deliveryAvailable, setDeliveryAvailable] = useState(false);
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(
+    null,
+  );
+
+  function handleMapConfirm(result: MapPickerResult) {
+    setCoordinates({ latitude: result.latitude, longitude: result.longitude });
+  }
 
   async function submit(formData: FormData) {
     setBusy(true);
@@ -43,6 +51,9 @@ export function ShopRegisterForm() {
         city: get("city"),
         state: get("state") || null,
         pincode: get("pincode"),
+        latitude: coordinates ? String(coordinates.latitude) : null,
+        longitude: coordinates ? String(coordinates.longitude) : null,
+        landmark: get("landmark") || null,
         shopType: get("shopType"),
         description: get("description") || null,
         deliveryAvailable,
@@ -104,6 +115,18 @@ export function ShopRegisterForm() {
         </div>
 
         <div className="sm:col-span-2">
+          <p className="mb-2 text-sm font-medium text-ink-700">Shop location</p>
+          <MapPicker
+            purpose="shop_registration"
+            initialCoordinates={coordinates}
+            onConfirm={handleMapConfirm}
+          />
+          {coordinates ? (
+            <p className="mt-1 text-xs text-leaf-700">Location pinned and confirmed.</p>
+          ) : null}
+        </div>
+
+        <div className="sm:col-span-2">
           <Field label="Address" error={fieldErrors.addressLine1}>
             <input name="addressLine1" required className={inputClass} />
           </Field>
@@ -111,6 +134,10 @@ export function ShopRegisterForm() {
 
         <Field label="Area / locality">
           <input name="area" className={inputClass} />
+        </Field>
+
+        <Field label="Landmark (optional)">
+          <input name="landmark" className={inputClass} />
         </Field>
 
         <Field label="City" error={fieldErrors.city}>

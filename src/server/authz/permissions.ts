@@ -125,6 +125,10 @@ export const PERMISSIONS = {
 
   /** View the admin compliance dashboard (checklist + policy status). */
   COMPLIANCE_DASHBOARD_VIEW: "compliance-dashboard:view",
+
+  /* --------------------------------------------- delivery system (Part 58) */
+  /** View Google Maps Platform SKU usage (admin-only — cost-sensitive). */
+  MAPS_USAGE_VIEW: "maps-usage:view",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -312,4 +316,5 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SHOP_COMPLIANCE_MANAGE]:
     "Set a shop's legal name, GSTIN, FSSAI number and return policy",
   [PERMISSIONS.COMPLIANCE_DASHBOARD_VIEW]: "View the legal compliance dashboard",
+  [PERMISSIONS.MAPS_USAGE_VIEW]: "View Google Maps Platform SKU usage",
 };

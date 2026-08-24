@@ -5,6 +5,7 @@ import { count, eq, sql } from "drizzle-orm";
 import { AuditLogView } from "@/components/audit-log-view";
 import { ComplianceDashboard } from "@/components/compliance-dashboard";
 import { GrievanceManager } from "@/components/grievance-manager";
+import { MapsUsagePanel } from "@/components/maps-usage-panel";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { ProductApprovalQueue } from "@/components/product-approval-queue";
 import { ReferralManager } from "@/components/referral-manager";
@@ -26,6 +27,7 @@ import { listAuditLog } from "@/server/services/audit-log-query";
 import { listPendingProductApprovals } from "@/server/services/catalogue";
 import { getComplianceChecklist } from "@/server/services/compliance";
 import { getGrievanceDashboard, listGrievances } from "@/server/services/grievances";
+import { getMapsUsageSummary } from "@/server/services/maps-usage";
 import { listAllPending } from "@/server/services/price-requests";
 import {
   getReferralPerformance,
@@ -77,6 +79,7 @@ export default async function AdminPage() {
   const canManageGrievances = can(user.role, PERMISSIONS.GRIEVANCE_MANAGE);
   const canManageShopCompliance = can(user.role, PERMISSIONS.SHOP_COMPLIANCE_MANAGE);
   const canViewComplianceDashboard = can(user.role, PERMISSIONS.COMPLIANCE_DASHBOARD_VIEW);
+  const canViewMapsUsage = can(user.role, PERMISSIONS.MAPS_USAGE_VIEW);
 
   const [
     pending,
@@ -124,6 +127,7 @@ export default async function AdminPage() {
     grievanceList,
     grievanceDashboard,
     complianceItems,
+    mapsUsage,
   ] = await Promise.all([
     searchShopsAdmin({ limit: 500 }),
     getRegistrationFeeReport(),
@@ -153,6 +157,9 @@ export default async function AdminPage() {
       ? getGrievanceDashboard()
       : Promise.resolve({ open: 0, inProgress: 0, resolved: 0, closed: 0, total: 0, overdue: 0 }),
     canViewComplianceDashboard ? getComplianceChecklist() : Promise.resolve([]),
+    canViewMapsUsage
+      ? getMapsUsageSummary()
+      : Promise.resolve({ totalCalls: 0, successCount: 0, failureCount: 0, byDay: [], byPurpose: [] }),
   ]);
 
   const [activeFee, feeHistory] = feeConfig as [
@@ -230,6 +237,12 @@ export default async function AdminPage() {
       {canViewComplianceDashboard ? (
         <Section title="Legal & regulatory compliance">
           <ComplianceDashboard items={complianceItems} />
+        </Section>
+      ) : null}
+
+      {canViewMapsUsage ? (
+        <Section title="Maps & Location Usage">
+          <MapsUsagePanel summary={mapsUsage} />
         </Section>
       ) : null}
 

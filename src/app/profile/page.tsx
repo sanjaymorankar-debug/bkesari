@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge, Card, PageHeader } from "@/components/ui";
@@ -27,6 +28,13 @@ export default async function ProfilePage() {
         <div className="mt-2">
           <Badge tone="info">{ROLE_LABELS[user.role]}</Badge>
         </div>
+
+        <Link
+          href="/profile/addresses"
+          className="mt-4 inline-block text-sm font-medium text-kesari-600 hover:underline"
+        >
+          My Addresses →
+        </Link>
 
         <form
           className="mt-5"

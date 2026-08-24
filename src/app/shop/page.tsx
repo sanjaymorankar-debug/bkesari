@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
+import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
 import {
@@ -248,6 +249,20 @@ export default async function ShopDashboardPage() {
 
       <div className="mb-8">
         <ShopSettingsForm shopId={shop.id} initialHours={shop.openingHours} />
+      </div>
+
+      <div className="mb-8">
+        <ShopLocationSettingsForm
+          settings={{
+            shopId: shop.id,
+            latitude: shop.latitude,
+            longitude: shop.longitude,
+            locationVerified: shop.locationVerified,
+            pickupLatitude: shop.pickupLatitude,
+            pickupLongitude: shop.pickupLongitude,
+            pickupInstructions: shop.pickupInstructions,
+          }}
+        />
       </div>
 
       <ShopProductManager

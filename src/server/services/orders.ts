@@ -568,6 +568,8 @@ async function loadAddressSnapshot(
   area?: string | null;
   city: string;
   pincode: string;
+  latitude?: string | null;
+  longitude?: string | null;
 } | null> {
   const address = await db.query.addresses.findFirst({
     where: and(eq(addresses.id, addressId), eq(addresses.userId, userId)),
@@ -579,6 +581,8 @@ async function loadAddressSnapshot(
     area: address.area,
     city: address.city,
     pincode: address.pincode,
+    latitude: address.latitude,
+    longitude: address.longitude,
   };
 }
 
