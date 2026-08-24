@@ -63,6 +63,9 @@ export default async function ShopPage({
           </div>
 
           <h1 className="text-2xl font-semibold text-ink-900">{shop.name}</h1>
+          <p className="mt-1 text-sm text-ink-500">
+            Owner / Proprietor: <span className="font-medium text-ink-700">{shop.ownerName}</span>
+          </p>
           {shop.description ? (
             <p className="mt-1 text-sm text-ink-600">{shop.description}</p>
           ) : null}
