@@ -32,6 +32,7 @@ export const userRoleEnum = pgEnum("user_role", [
   "SHOP_OWNER",
   "OPERATOR",
   "ADMIN",
+  "DELIVERY_PARTNER",
 ]);
 
 export const userStatusEnum = pgEnum("user_status", [
@@ -602,6 +603,89 @@ export const shopClassificationHistory = pgTable(
       .defaultNow(),
   },
   (t) => [index("shop_class_hist_shop_idx").on(t.shopId)],
+);
+
+/* ------------------------------------------------------- delivery partners
+ * (delivery-system Part 58 follow-up, Slice B — registration + verification
+ * only. No online/offline status, no assignment, no earnings yet — those are
+ * Slice C, once deliveryOrders/deliveryPartnerEarnings exist to attach them
+ * to. Mirrors the shop registration/approval pattern: self-service create,
+ * admin-gated status transitions, every transition audited. */
+
+export const deliveryPartnerStatusEnum = pgEnum("delivery_partner_status", [
+  "REGISTERED",
+  "UNDER_REVIEW",
+  "APPROVED",
+  "REJECTED",
+  "SUSPENDED",
+  "DEACTIVATED",
+]);
+
+export const deliveryPartners = pgTable(
+  "delivery_partners",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+
+    /* ------------------------------------------------------- personal info */
+    fullName: text("full_name").notNull(),
+    mobile: text("mobile").notNull(),
+    email: text("email"),
+    dateOfBirth: date("date_of_birth"),
+    profilePhotoUrl: text("profile_photo_url"),
+
+    /* --------------------------------------------------- KYC — deliberately
+     * minimal and all nullable; a partner can register and be reviewed
+     * before supplying bank details, and nothing here is collected that
+     * isn't named in the brief's own field list. */
+    panNumber: text("pan_number"),
+    governmentIdType: text("government_id_type"),
+    governmentIdNumber: text("government_id_number"),
+    bankAccountHolderName: text("bank_account_holder_name"),
+    bankAccountNumber: text("bank_account_number"),
+    bankIfsc: text("bank_ifsc"),
+
+    /* ---------------------------------------------------------- vehicle */
+    /** One of VEHICLE_TYPES in src/lib/vehicle-types.ts — app-level list, not a DB enum, so adding a type is a code change, not a migration. */
+    vehicleType: text("vehicle_type").notNull(),
+    vehicleRegistrationNumber: text("vehicle_registration_number"),
+    drivingLicenceNumber: text("driving_licence_number"),
+
+    /* -------------------------------------------------- operating area —
+     * same stored-coordinates discipline as shops/addresses (see
+     * geocoding.ts): verified once, reused thereafter, never re-geocoded on
+     * routine reads. */
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
+    locationVerified: boolean("location_verified").notNull().default(false),
+    locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
+    locationSource: text("location_source", {
+      enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
+    }),
+
+    /* ------------------------------------------------------- verification */
+    status: deliveryPartnerStatusEnum("status").notNull().default("REGISTERED"),
+    reviewNotes: text("review_notes"),
+    rejectionReason: text("rejection_reason"),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    // One delivery-partner profile per user account.
+    uniqueIndex("delivery_partners_user_id_unique").on(t.userId),
+    index("delivery_partners_status_idx").on(t.status),
+  ],
 );
 
 /* ---------------------------------------------------- catalogue (master) */
@@ -1950,6 +2034,8 @@ export type SubscriptionDailyOverride =
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
+export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
+export type DeliveryPartnerStatus = (typeof deliveryPartnerStatusEnum.enumValues)[number];
 export type MapsApiCallLog = typeof mapsApiCallLog.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RegistrationFee = typeof registrationFees.$inferSelect;

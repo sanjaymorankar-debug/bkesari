@@ -93,6 +93,24 @@ export default async function HomePage() {
           Add my shop
         </Link>
       </Card>
+
+      <Card className="mb-6 flex flex-wrap items-center justify-between gap-4 p-6">
+        <div>
+          <h2 className="text-lg font-semibold text-ink-900">
+            Want to deliver for Bkesari?
+          </h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Join as an independent delivery partner — flexible hours, earn per
+            delivery.
+          </p>
+        </div>
+        <Link
+          href="/delivery-partner/apply"
+          className="rounded-lg border border-kesari-300 bg-white px-4 py-2 text-sm font-medium text-kesari-700 hover:bg-kesari-50"
+        >
+          Become a Delivery Partner
+        </Link>
+      </Card>
     </>
   );
 }

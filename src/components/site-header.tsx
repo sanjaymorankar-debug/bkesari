@@ -42,6 +42,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Admin Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
   ],
+  DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };
 
 /** Header per requirement §6, collapsing to a drawer on mobile (§52). */
@@ -56,7 +57,9 @@ export function SiteHeader({ user, cartCount, balancePaise, unreadCount }: Props
         ? "/operator"
         : user?.role === "SHOP_OWNER"
           ? "/shop"
-          : null;
+          : user?.role === "DELIVERY_PARTNER"
+            ? "/delivery-partner"
+            : null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">

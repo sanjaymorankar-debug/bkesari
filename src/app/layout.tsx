@@ -67,6 +67,9 @@ export default async function RootLayout({
               <Link href="/contact" className="hover:text-ink-700 hover:underline">
                 Contact Us
               </Link>
+              <Link href="/delivery-partner/apply" className="hover:text-ink-700 hover:underline">
+                Become a Delivery Partner
+              </Link>
               {LEGAL_DOCS.map((doc) => (
                 <Link key={doc.slug} href={`/legal/${doc.slug}`} className="hover:text-ink-700 hover:underline">
                   {doc.shortLabel}

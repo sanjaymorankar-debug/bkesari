@@ -85,6 +85,10 @@ export const AUDIT_ACTIONS = {
 
   /* --------------------------------------------- seller/food compliance */
   SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
+
+  /* --------------------------------------------- delivery partners (Part 58) */
+  DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
+  DELIVERY_PARTNER_STATUS_CHANGED: "delivery_partner.status_changed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

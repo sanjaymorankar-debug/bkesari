@@ -129,6 +129,13 @@ export const PERMISSIONS = {
   /* --------------------------------------------- delivery system (Part 58) */
   /** View Google Maps Platform SKU usage (admin-only — cost-sensitive). */
   MAPS_USAGE_VIEW: "maps-usage:view",
+
+  /** Any customer may apply to become a delivery partner. */
+  DELIVERY_PARTNER_REGISTER: "delivery-partner:register",
+  /** View/edit one's own delivery-partner profile and application status. */
+  DELIVERY_PARTNER_VIEW_OWN: "delivery-partner:view:own",
+  /** Admin/operator: review queue, approve/reject/suspend/reactivate/deactivate. */
+  DELIVERY_PARTNER_MANAGE: "delivery-partner:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -141,6 +148,18 @@ const CUSTOMER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.WALLET_VIEW_OWN,
   PERMISSIONS.WALLET_TOPUP_OWN,
   PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
+  PERMISSIONS.DELIVERY_PARTNER_REGISTER, // any customer may apply to become a delivery partner
+];
+
+/**
+ * A user who registers as a delivery partner keeps their ability to shop
+ * (same as SHOP_OWNER keeps customer capabilities) and gains visibility into
+ * their own application/profile — nothing operational (going online,
+ * accepting deliveries) exists yet; that's Slice C.
+ */
+const DELIVERY_PARTNER_PERMISSIONS: readonly Permission[] = [
+  ...CUSTOMER_PERMISSIONS,
+  PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN,
 ];
 
 const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
@@ -200,6 +219,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.VOUCHER_VIEW,
   PERMISSIONS.GRIEVANCE_MANAGE,
   PERMISSIONS.SHOP_COMPLIANCE_MANAGE,
+  PERMISSIONS.DELIVERY_PARTNER_MANAGE,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -221,6 +241,7 @@ export const ROLE_PERMISSIONS: Readonly<
   SHOP_OWNER: SHOP_OWNER_PERMISSIONS,
   OPERATOR: OPERATOR_PERMISSIONS,
   ADMIN: ADMIN_PERMISSIONS,
+  DELIVERY_PARTNER: DELIVERY_PARTNER_PERMISSIONS,
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -228,6 +249,7 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   SHOP_OWNER: new Set(SHOP_OWNER_PERMISSIONS),
   OPERATOR: new Set(OPERATOR_PERMISSIONS),
   ADMIN: new Set(ADMIN_PERMISSIONS),
+  DELIVERY_PARTNER: new Set(DELIVERY_PARTNER_PERMISSIONS),
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -250,6 +272,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   SHOP_OWNER: "Shop Owner",
   OPERATOR: "Operator",
   ADMIN: "Administrator",
+  DELIVERY_PARTNER: "Delivery Partner",
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
@@ -317,4 +340,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
     "Set a shop's legal name, GSTIN, FSSAI number and return policy",
   [PERMISSIONS.COMPLIANCE_DASHBOARD_VIEW]: "View the legal compliance dashboard",
   [PERMISSIONS.MAPS_USAGE_VIEW]: "View Google Maps Platform SKU usage",
+  [PERMISSIONS.DELIVERY_PARTNER_REGISTER]: "Apply to become a delivery partner",
+  [PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN]: "View own delivery-partner profile and status",
+  [PERMISSIONS.DELIVERY_PARTNER_MANAGE]:
+    "Review, approve, reject, suspend or reactivate delivery partners",
 };

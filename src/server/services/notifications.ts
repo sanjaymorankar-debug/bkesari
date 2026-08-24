@@ -31,6 +31,9 @@ export const NOTIFICATION_TYPES = {
   PRICE_CHANGED: "product.price_changed",
   GRIEVANCE_ACKNOWLEDGED: "grievance.acknowledged",
   GRIEVANCE_RESOLVED: "grievance.resolved",
+  DELIVERY_PARTNER_APPROVED: "delivery_partner.approved",
+  DELIVERY_PARTNER_REJECTED: "delivery_partner.rejected",
+  DELIVERY_PARTNER_SUSPENDED: "delivery_partner.suspended",
 } as const;
 
 export type NotificationType =

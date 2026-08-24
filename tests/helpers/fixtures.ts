@@ -29,7 +29,7 @@ export async function resetDatabase(): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
       grievances, user_consents,
-      maps_api_call_log,
+      maps_api_call_log, delivery_partners,
       audit_logs, notifications,
       price_update_requests, price_update_batches,
       excel_upload_items, excel_uploads,

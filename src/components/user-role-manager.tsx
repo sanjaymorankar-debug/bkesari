@@ -9,6 +9,7 @@ import type { UserRole } from "@/server/db/schema";
 const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: "CUSTOMER", label: "Customer" },
   { value: "SHOP_OWNER", label: "Shop Owner" },
+  { value: "DELIVERY_PARTNER", label: "Delivery Partner" },
   { value: "OPERATOR", label: "Operator" },
   { value: "ADMIN", label: "Administrator" },
 ];
