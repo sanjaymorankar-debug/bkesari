@@ -88,6 +88,17 @@ export const orderSourceEnum = pgEnum("order_source", [
   "SUBSCRIPTION",
 ]);
 
+/* -------------------------------------------------------- delivery windows
+ * (delivery-system Part 58 follow-up, Slice C). Fixed set for Phase 1 per
+ * the brief ("initially support 30/60/scheduled") — true admin-defined
+ * custom windows are Phase 2/3. Nullable on `orders`: existing orders and
+ * any checkout that doesn't pick a window are unaffected. */
+export const deliveryWindowEnum = pgEnum("delivery_window", [
+  "EXPRESS_30",
+  "STANDARD_60",
+  "SCHEDULED",
+]);
+
 export const paymentStatusEnum = pgEnum("payment_status", [
   "CREATED",
   "PENDING",
@@ -484,6 +495,12 @@ export const shops = pgTable(
     freeDeliveryAbovePaise: bigint("free_delivery_above_paise", {
       mode: "number",
     }),
+    /** Feeds the delivery-window feasibility check (Part 58 §14) — never
+     * promise a 30-minute delivery without accounting for how long this shop
+     * actually takes to prepare an order. */
+    preparationTimeMinutes: integer("preparation_time_minutes")
+      .notNull()
+      .default(15),
     description: text("description"),
     rejectionReason: text("rejection_reason"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -672,6 +689,15 @@ export const deliveryPartners = pgTable(
     rejectionReason: text("rejection_reason"),
     reviewedBy: uuid("reviewed_by").references(() => users.id),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+
+    /* --------------------------------------------------- online status (Slice
+     * C). Written only while online, from the browser's native geolocation —
+     * never a Google Maps Platform call (see haversine.ts). Never polled or
+     * updated while offline, per the brief's own privacy requirement. */
+    isOnline: boolean("is_online").notNull().default(false),
+    lastLocationLatitude: text("last_location_latitude"),
+    lastLocationLongitude: text("last_location_longitude"),
+    lastLocationAt: timestamp("last_location_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -969,6 +995,12 @@ export const orders = pgTable(
     deliveryDate: date("delivery_date"),
     notes: text("notes"),
     cancellationReason: text("cancellation_reason"),
+    /** Chosen at checkout, when set — see delivery-feasibility.ts. Null for
+     * orders placed before this existed, or where no window was offered. */
+    deliveryWindow: deliveryWindowEnum("delivery_window"),
+    /** The deadline promised for `deliveryWindow`. Never set unless the
+     * system determined it was actually achievable at checkout time. */
+    promisedByAt: timestamp("promised_by_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1039,6 +1071,104 @@ export const orderStatusHistory = pgTable(
       .defaultNow(),
   },
   (t) => [index("order_status_history_order_idx").on(t.orderId)],
+);
+
+/* ---------------------------------------------------- delivery assignment
+ * (delivery-system Part 58 follow-up, Slice C). One row per order for now —
+ * multi-order batching (Phase 2) would attach several deliveryOrders to a
+ * shared route/batch, not change this table's shape. */
+
+export const deliveryOrderStatusEnum = pgEnum("delivery_order_status", [
+  "OFFERED",
+  "ACCEPTED",
+  "REJECTED",
+  "PICKED_UP",
+  "DELIVERED",
+  "CANCELLED",
+]);
+
+export const deliveryOrders = pgTable(
+  "delivery_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    status: deliveryOrderStatusEnum("status").notNull().default("OFFERED"),
+    /** Haversine straight-line distance, shop → customer, at assignment time — not a road-distance API call (see haversine.ts). */
+    distanceKm: text("distance_km"),
+    offeredAt: timestamp("offered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancellationReason: text("cancellation_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One active delivery assignment per order, pre-batching.
+    uniqueIndex("delivery_orders_order_id_unique").on(t.orderId),
+    index("delivery_orders_partner_idx").on(t.deliveryPartnerId),
+    index("delivery_orders_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Admin-configurable earnings rates (Part 58 §11) — same "one active row"
+ * pattern as registrationFees. Changes are audited via recordAudit(), not a
+ * dedicated history table: lower-stakes than the registration fee, which
+ * has direct legal/billing weight.
+ */
+export const deliveryEarningsConfig = pgTable(
+  "delivery_earnings_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    baseFeePaise: bigint("base_fee_paise", { mode: "number" }).notNull(),
+    perKmFeePaise: bigint("per_km_fee_paise", { mode: "number" }).notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("delivery_earnings_config_non_negative", sql`${t.baseFeePaise} >= 0 AND ${t.perKmFeePaise} >= 0`),
+  ],
+);
+
+/** One row per completed delivery — the "transparent, delivery-wise earnings statement" the brief calls for. Idempotent on deliveryOrderId. */
+export const deliveryPartnerEarnings = pgTable(
+  "delivery_partner_earnings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    deliveryOrderId: uuid("delivery_order_id")
+      .notNull()
+      .references(() => deliveryOrders.id, { onDelete: "restrict" }),
+    basePaise: bigint("base_paise", { mode: "number" }).notNull(),
+    distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_partner_earnings_order_unique").on(t.deliveryOrderId),
+    index("delivery_partner_earnings_partner_idx").on(t.deliveryPartnerId),
+  ],
 );
 
 /* ------------------------------------------------------------- payments */
@@ -2036,6 +2166,11 @@ export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
 export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
 export type DeliveryPartnerStatus = (typeof deliveryPartnerStatusEnum.enumValues)[number];
+export type DeliveryOrder = typeof deliveryOrders.$inferSelect;
+export type DeliveryOrderStatus = (typeof deliveryOrderStatusEnum.enumValues)[number];
+export type DeliveryWindow = (typeof deliveryWindowEnum.enumValues)[number];
+export type DeliveryEarningsConfig = typeof deliveryEarningsConfig.$inferSelect;
+export type DeliveryPartnerEarning = typeof deliveryPartnerEarnings.$inferSelect;
 export type MapsApiCallLog = typeof mapsApiCallLog.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RegistrationFee = typeof registrationFees.$inferSelect;

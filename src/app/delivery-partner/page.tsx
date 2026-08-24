@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
+import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
 import { Alert, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getMyActiveDeliveryDetail } from "@/server/services/delivery-assignment";
+import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 
 export const metadata = { title: "My Delivery Partner Application" };
@@ -29,6 +31,11 @@ export default async function DeliveryPartnerStatusPage() {
 
   const partner = await getMyDeliveryPartnerProfile(user.id);
   if (!partner) redirect("/delivery-partner/apply");
+
+  const [activeDelivery, earnings] =
+    partner.status === "APPROVED"
+      ? await Promise.all([getMyActiveDeliveryDetail(user.id), getPartnerEarningsSummary(partner.id)])
+      : [null, { todayPaise: 0, totalPaise: 0, deliveryCount: 0 }];
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -88,14 +95,13 @@ export default async function DeliveryPartnerStatusPage() {
       </Card>
 
       {partner.status === "APPROVED" ? (
-        <p className="mt-4 text-sm text-ink-500">
-          Delivery assignment, going online, and earnings tracking are coming
-          soon.{" "}
-          <Link href="/contact" className="underline">
-            Contact us
-          </Link>{" "}
-          with any questions in the meantime.
-        </p>
+        <div className="mt-4">
+          <DeliveryPartnerDashboard
+            isOnline={partner.isOnline}
+            activeDelivery={activeDelivery}
+            earnings={earnings}
+          />
+        </div>
       ) : null}
     </div>
   );

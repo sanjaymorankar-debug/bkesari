@@ -12,7 +12,17 @@ import {
 } from "@/components/ui";
 import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
 import { listOrdersForUser } from "@/server/services/orders";
+
+const DELIVERY_STATUS_LABELS: Record<string, string> = {
+  OFFERED: "Finding a rider",
+  ACCEPTED: "Rider assigned",
+  PICKED_UP: "Picked up — on the way",
+  DELIVERED: "Delivered",
+  REJECTED: "Finding a rider",
+  CANCELLED: "Finding a rider",
+};
 
 export const metadata = { title: "My Orders" };
 export const dynamic = "force-dynamic";
@@ -29,6 +39,7 @@ export default async function OrdersPage({
     listOrdersForUser(user.id, { limit: 50 }),
     searchParams,
   ]);
+  const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
 
   return (
     <>
@@ -87,6 +98,13 @@ export default async function OrdersPage({
                   </li>
                 ))}
               </ul>
+
+              {deliveryOrders.has(order.id) ? (
+                <p className="mt-3 border-t border-cream-100 pt-3 text-sm text-ink-600">
+                  {DELIVERY_STATUS_LABELS[deliveryOrders.get(order.id)!.status]} ·{" "}
+                  {deliveryOrders.get(order.id)!.partnerName}
+                </p>
+              ) : null}
 
               {order.status === "WALLET_INSUFFICIENT" ? (
                 <div className="mt-3">

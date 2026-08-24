@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Alert,
@@ -18,6 +18,21 @@ import {
 } from "@/components/ui";
 import { formatQuantity } from "@/lib/money";
 import type { CartSummary } from "@/server/services/cart";
+
+type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
+
+interface Feasibility {
+  EXPRESS_30: boolean;
+  STANDARD_60: boolean;
+  SCHEDULED: boolean;
+  estimatedMinutes: number | null;
+}
+
+const WINDOW_LABEL: Record<DeliveryWindowKey, string> = {
+  EXPRESS_30: "Express (30 min)",
+  STANDARD_60: "Standard (60 min)",
+  SCHEDULED: "Scheduled",
+};
 
 export interface CheckoutAddress {
   id: string;
@@ -51,6 +66,32 @@ export function CartView({
   const [addressId, setAddressId] = useState<string | null>(
     addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? null,
   );
+  const [feasibility, setFeasibility] = useState<Record<string, Feasibility>>({});
+  const [deliveryWindows, setDeliveryWindows] = useState<Record<string, DeliveryWindowKey>>({});
+
+  const shopIds = cart.groups.map((g) => g.shop.id).join(",");
+  useEffect(() => {
+    let cancelled = false;
+    for (const shopId of shopIds ? shopIds.split(",") : []) {
+      fetch(`/api/checkout/delivery-windows?shopId=${shopId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: Feasibility | null) => {
+          if (cancelled || !data) return;
+          setFeasibility((prev) => ({ ...prev, [shopId]: data }));
+          setDeliveryWindows((prev) => {
+            if (prev[shopId]) return prev;
+            if (data.EXPRESS_30) return { ...prev, [shopId]: "EXPRESS_30" };
+            if (data.STANDARD_60) return { ...prev, [shopId]: "STANDARD_60" };
+            if (data.SCHEDULED) return { ...prev, [shopId]: "SCHEDULED" };
+            return prev;
+          });
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [shopIds]);
 
   const affordable = walletBalancePaise >= cart.grandTotalPaise;
   const shortfall = Math.max(0, cart.grandTotalPaise - walletBalancePaise);
@@ -77,7 +118,7 @@ export function CartView({
     const response = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId, addressId }),
+      body: JSON.stringify({ requestId, addressId, deliveryWindows }),
     });
     const payload = await response.json().catch(() => null);
     setBusy(false);
@@ -191,6 +232,32 @@ export function CartView({
                 <Row label="Taxes" paise={group.taxPaise} />
               ) : null}
             </div>
+
+            {feasibility[group.shop.id] ? (
+              <div className="border-t border-cream-200 px-4 py-3">
+                <p className="mb-2 text-xs font-medium text-ink-500">Delivery time</p>
+                <div className="flex flex-wrap gap-2">
+                  {(["EXPRESS_30", "STANDARD_60", "SCHEDULED"] as const)
+                    .filter((key) => feasibility[group.shop.id][key])
+                    .map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() =>
+                          setDeliveryWindows((prev) => ({ ...prev, [group.shop.id]: key }))
+                        }
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
+                          deliveryWindows[group.shop.id] === key
+                            ? "border-kesari-500 bg-kesari-50 text-kesari-700"
+                            : "border-cream-200 text-ink-600 hover:border-kesari-300"
+                        }`}
+                      >
+                        {WINDOW_LABEL[key]}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            ) : null}
           </Card>
         ))}
       </div>

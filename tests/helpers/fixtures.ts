@@ -8,6 +8,7 @@ import { sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import {
+  deliveryPartners,
   payments,
   productCategories,
   products,
@@ -16,10 +17,12 @@ import {
   users,
   vouchers,
   wallets,
+  type DeliveryPartnerStatus,
   type Department,
   type UserRole,
 } from "@/server/db/schema";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import type { VehicleTypeKey } from "@/lib/vehicle-types";
 
 let counter = 0;
 const uniq = () => `${Date.now().toString(36)}-${(counter += 1)}`;
@@ -29,6 +32,7 @@ export async function resetDatabase(): Promise<void> {
   await db.execute(sql`
     TRUNCATE TABLE
       grievances, user_consents,
+      delivery_partner_earnings, delivery_earnings_config, delivery_orders,
       maps_api_call_log, delivery_partners,
       audit_logs, notifications,
       price_update_requests, price_update_batches,
@@ -117,6 +121,9 @@ export async function createShop(
     name?: string;
     deliveryAvailable?: boolean;
     registrationFeePaise?: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    preparationTimeMinutes?: number;
   } = {},
 ) {
   const name = overrides.name ?? "Test Dairy";
@@ -139,9 +146,46 @@ export async function createShop(
         overrides.registrationFeePaise !== undefined
           ? overrides.registrationFeePaise
           : 500_000, // ₹5,000 — the fee used throughout the brief's examples
+      latitude: overrides.latitude != null ? String(overrides.latitude) : null,
+      longitude: overrides.longitude != null ? String(overrides.longitude) : null,
+      preparationTimeMinutes: overrides.preparationTimeMinutes ?? 15,
     })
     .returning();
   return shop;
+}
+
+/**
+ * Inserts a delivery partner directly (bypassing registerDeliveryPartner's
+ * geocoding call) so assignment/earnings tests can set up an approved,
+ * positioned partner in one step.
+ */
+export async function createDeliveryPartner(
+  userId: string,
+  overrides: {
+    status?: DeliveryPartnerStatus;
+    vehicleType?: VehicleTypeKey;
+    isOnline?: boolean;
+    latitude?: number | null;
+    longitude?: number | null;
+    operatingRadiusKm?: number;
+  } = {},
+) {
+  const [partner] = await db
+    .insert(deliveryPartners)
+    .values({
+      userId,
+      fullName: "Test Rider",
+      mobile: "9876543210",
+      vehicleType: overrides.vehicleType ?? "MOTORCYCLE",
+      status: overrides.status ?? "APPROVED",
+      isOnline: overrides.isOnline ?? false,
+      operatingRadiusKm: overrides.operatingRadiusKm ?? 5,
+      lastLocationLatitude: overrides.latitude != null ? String(overrides.latitude) : null,
+      lastLocationLongitude: overrides.longitude != null ? String(overrides.longitude) : null,
+      lastLocationAt: overrides.latitude != null ? new Date() : null,
+    })
+    .returning();
+  return partner;
 }
 
 export async function createShopProduct(

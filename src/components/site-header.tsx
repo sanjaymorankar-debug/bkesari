@@ -32,6 +32,7 @@ const NAV = [
 const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
   SHOP_OWNER: [
     { href: "/shop", label: "My Shop" },
+    { href: "/shop/orders", label: "Orders" },
     { href: "/shop/prices", label: "Price Updates" },
   ],
   OPERATOR: [

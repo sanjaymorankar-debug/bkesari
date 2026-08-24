@@ -337,3 +337,104 @@ export async function requireOwnDeliveryPartnerProfile(
   if (partner.userId !== userId) throw forbidden("This profile does not belong to you.");
   return partner;
 }
+
+function validCoordinate(latitude: number, longitude: number): boolean {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+/**
+ * Goes online with a current position — gated to APPROVED partners only, so
+ * assignment (Slice C) never offers a delivery to someone still under
+ * review. Location comes from the browser's native geolocation; this
+ * function never calls any Google Maps Platform service.
+ */
+export async function goOnline(
+  userId: string,
+  latitude: number,
+  longitude: number,
+): Promise<DeliveryPartner> {
+  if (!validCoordinate(latitude, longitude)) {
+    throw validationFailed("A valid current location is required to go online.");
+  }
+  const partner = await getMyDeliveryPartnerProfile(userId);
+  if (!partner) throw notFound("Delivery partner profile");
+  if (partner.status !== "APPROVED") {
+    throw conflict("Only an approved delivery partner can go online.");
+  }
+
+  const [updated] = await db
+    .update(deliveryPartners)
+    .set({
+      isOnline: true,
+      lastLocationLatitude: String(latitude),
+      lastLocationLongitude: String(longitude),
+      lastLocationAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(deliveryPartners.id, partner.id))
+    .returning();
+
+  await recordAudit({
+    actorId: userId,
+    action: AUDIT_ACTIONS.DELIVERY_PARTNER_ONLINE_STATUS_CHANGED,
+    entityType: "delivery_partner",
+    entityId: partner.id,
+    newValue: { isOnline: true },
+  });
+
+  return updated;
+}
+
+export async function goOffline(userId: string): Promise<DeliveryPartner> {
+  const partner = await getMyDeliveryPartnerProfile(userId);
+  if (!partner) throw notFound("Delivery partner profile");
+
+  const [updated] = await db
+    .update(deliveryPartners)
+    .set({ isOnline: false, updatedAt: new Date() })
+    .where(eq(deliveryPartners.id, partner.id))
+    .returning();
+
+  await recordAudit({
+    actorId: userId,
+    action: AUDIT_ACTIONS.DELIVERY_PARTNER_ONLINE_STATUS_CHANGED,
+    entityType: "delivery_partner",
+    entityId: partner.id,
+    newValue: { isOnline: false },
+  });
+
+  return updated;
+}
+
+/**
+ * Location heartbeat while online. Silently a no-op for an offline partner
+ * rather than trusting the client's own "I'm online" claim — per the
+ * brief's privacy requirement, location is never written while offline.
+ */
+export async function updateMyLocation(
+  userId: string,
+  latitude: number,
+  longitude: number,
+): Promise<void> {
+  if (!validCoordinate(latitude, longitude)) {
+    throw validationFailed("A valid location is required.");
+  }
+  const partner = await getMyDeliveryPartnerProfile(userId);
+  if (!partner || !partner.isOnline) return;
+
+  await db
+    .update(deliveryPartners)
+    .set({
+      lastLocationLatitude: String(latitude),
+      lastLocationLongitude: String(longitude),
+      lastLocationAt: new Date(),
+    })
+    .where(eq(deliveryPartners.id, partner.id));
+}

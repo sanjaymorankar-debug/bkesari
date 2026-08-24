@@ -30,6 +30,7 @@ import {
   shopProducts,
   shops,
   walletTransactions,
+  type DeliveryWindow,
   type Order,
   type OrderStatus,
   type UserRole,
@@ -37,6 +38,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct } from "./catalogue";
+import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 
 /* ------------------------------------------------------- state machine */
@@ -93,6 +95,14 @@ export interface CheckoutInput {
    */
   requestId: string;
   notes?: string | null;
+  /**
+   * Requested delivery window per shop (cart spans several shops → one order
+   * each). Re-validated against live feasibility at order-creation time — a
+   * client's earlier selection is a hint, never trusted outright, since a
+   * rider may have gone offline between browsing and paying (§21: never
+   * promise a window the system can't actually back).
+   */
+  deliveryWindows?: Record<string, DeliveryWindow>;
 }
 
 export interface CheckoutResult {
@@ -154,6 +164,11 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
     }
 
+    const requestedWindow = input.deliveryWindows?.[group.shop.id];
+    const { deliveryWindow, promisedByAt } = requestedWindow
+      ? await resolvePromisedWindow(group.shop.id, requestedWindow)
+      : { deliveryWindow: null, promisedByAt: null };
+
     const order = await db.transaction(async (tx) => {
       const lines: {
         shopProductId: string;
@@ -214,6 +229,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           deliveryFeePaise,
           taxPaise,
           totalPaise,
+          deliveryWindow,
+          promisedByAt,
           notes: input.notes ?? null,
         })
         .returning();
@@ -557,6 +574,35 @@ export function generateOrderNumber(now: Date = new Date()): string {
   const stamp = now.toISOString().slice(0, 10).replace(/-/g, "");
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `DB-${stamp}-${random}`;
+}
+
+/**
+ * Re-checks a requested delivery window against live feasibility at the
+ * moment of payment — never trusts the client's earlier selection outright,
+ * since a rider may have gone offline between browsing and paying. Falls
+ * back to the best still-feasible window rather than failing checkout over
+ * a transient rider-availability gap.
+ */
+async function resolvePromisedWindow(
+  shopId: string,
+  requested: DeliveryWindow,
+): Promise<{ deliveryWindow: DeliveryWindow | null; promisedByAt: Date | null }> {
+  const feasibility = await getFeasibleDeliveryWindows(shopId);
+  const actual: DeliveryWindow | null = feasibility[requested]
+    ? requested
+    : feasibility.EXPRESS_30
+      ? "EXPRESS_30"
+      : feasibility.STANDARD_60
+        ? "STANDARD_60"
+        : feasibility.SCHEDULED
+          ? "SCHEDULED"
+          : null;
+
+  if (!actual || actual === "SCHEDULED") {
+    return { deliveryWindow: actual, promisedByAt: null };
+  }
+  const minutes = DELIVERY_WINDOW_MINUTES[actual];
+  return { deliveryWindow: actual, promisedByAt: new Date(Date.now() + minutes * 60_000) };
 }
 
 async function loadAddressSnapshot(

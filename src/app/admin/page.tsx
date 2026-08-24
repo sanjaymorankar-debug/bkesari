@@ -4,6 +4,7 @@ import { count, eq, sql } from "drizzle-orm";
 
 import { AuditLogView } from "@/components/audit-log-view";
 import { ComplianceDashboard } from "@/components/compliance-dashboard";
+import { DeliveryEarningsConfigManager } from "@/components/delivery-earnings-config-manager";
 import { DeliveryPartnerQueue } from "@/components/delivery-partner-queue";
 import { GrievanceManager } from "@/components/grievance-manager";
 import { MapsUsagePanel } from "@/components/maps-usage-panel";
@@ -27,6 +28,7 @@ import { orders, shops, users, wallets } from "@/server/db/schema";
 import { listAuditLog } from "@/server/services/audit-log-query";
 import { listPendingProductApprovals } from "@/server/services/catalogue";
 import { getComplianceChecklist } from "@/server/services/compliance";
+import { getActiveEarningsConfig } from "@/server/services/delivery-earnings";
 import {
   countDeliveryPartnersByStatus,
   listDeliveryPartners,
@@ -86,6 +88,7 @@ export default async function AdminPage() {
   const canViewComplianceDashboard = can(user.role, PERMISSIONS.COMPLIANCE_DASHBOARD_VIEW);
   const canViewMapsUsage = can(user.role, PERMISSIONS.MAPS_USAGE_VIEW);
   const canManageDeliveryPartners = can(user.role, PERMISSIONS.DELIVERY_PARTNER_MANAGE);
+  const canManageEarningsConfig = can(user.role, PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE);
 
   const [
     pending,
@@ -136,6 +139,7 @@ export default async function AdminPage() {
     mapsUsage,
     deliveryPartnerList,
     deliveryPartnerCounts,
+    earningsConfig,
   ] = await Promise.all([
     searchShopsAdmin({ limit: 500 }),
     getRegistrationFeeReport(),
@@ -170,6 +174,7 @@ export default async function AdminPage() {
       : Promise.resolve({ totalCalls: 0, successCount: 0, failureCount: 0, byDay: [], byPurpose: [] }),
     canManageDeliveryPartners ? listDeliveryPartners() : Promise.resolve([]),
     canManageDeliveryPartners ? countDeliveryPartnersByStatus() : Promise.resolve({}),
+    canManageEarningsConfig ? getActiveEarningsConfig() : Promise.resolve(null),
   ]);
 
   const [activeFee, feeHistory] = feeConfig as [
@@ -274,6 +279,18 @@ export default async function AdminPage() {
               createdAt: p.createdAt.toISOString(),
             }))}
             dashboard={deliveryPartnerCounts}
+          />
+        </Section>
+      ) : null}
+
+      {canManageEarningsConfig && earningsConfig ? (
+        <Section title="Delivery earnings rate">
+          <DeliveryEarningsConfigManager
+            active={{
+              baseFeePaise: earningsConfig.baseFeePaise,
+              perKmFeePaise: earningsConfig.perKmFeePaise,
+              note: earningsConfig.note,
+            }}
           />
         </Section>
       ) : null}

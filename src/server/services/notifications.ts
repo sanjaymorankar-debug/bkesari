@@ -34,6 +34,7 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_APPROVED: "delivery_partner.approved",
   DELIVERY_PARTNER_REJECTED: "delivery_partner.rejected",
   DELIVERY_PARTNER_SUSPENDED: "delivery_partner.suspended",
+  DELIVERY_OFFERED: "delivery.offered",
 } as const;
 
 export type NotificationType =

@@ -89,6 +89,16 @@ export const AUDIT_ACTIONS = {
   /* --------------------------------------------- delivery partners (Part 58) */
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
   DELIVERY_PARTNER_STATUS_CHANGED: "delivery_partner.status_changed",
+  DELIVERY_PARTNER_ONLINE_STATUS_CHANGED: "delivery_partner.online_status_changed",
+
+  /* ------------------------------------ delivery assignment (Part 58, Slice C) */
+  DELIVERY_ORDER_OFFERED: "delivery_order.offered",
+  DELIVERY_ORDER_ACCEPTED: "delivery_order.accepted",
+  DELIVERY_ORDER_REJECTED: "delivery_order.rejected",
+  DELIVERY_ORDER_PICKED_UP: "delivery_order.picked_up",
+  DELIVERY_ORDER_DELIVERED: "delivery_order.delivered",
+  DELIVERY_ORDER_CANCELLED: "delivery_order.cancelled",
+  DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

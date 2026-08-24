@@ -19,6 +19,8 @@ const schema = z.object({
   requestId: z.string().min(8).max(64),
   addressId: z.string().uuid().nullish(),
   notes: z.string().max(500).nullish(),
+  /** shopId -> requested window. Re-validated against live feasibility server-side. */
+  deliveryWindows: z.record(z.string().uuid(), z.enum(["EXPRESS_30", "STANDARD_60", "SCHEDULED"])).optional(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -31,6 +33,7 @@ export const POST = route(async (request: NextRequest) => {
     requestId: body.requestId,
     addressId: body.addressId ?? null,
     notes: body.notes ?? null,
+    deliveryWindows: body.deliveryWindows,
   });
 
   return ok(
@@ -41,6 +44,8 @@ export const POST = route(async (request: NextRequest) => {
         shopId: o.shopId,
         totalPaise: o.totalPaise,
         status: o.status,
+        deliveryWindow: o.deliveryWindow,
+        promisedByAt: o.promisedByAt,
       })),
       deduplicated: result.deduplicated,
     },

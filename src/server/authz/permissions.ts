@@ -136,6 +136,15 @@ export const PERMISSIONS = {
   DELIVERY_PARTNER_VIEW_OWN: "delivery-partner:view:own",
   /** Admin/operator: review queue, approve/reject/suspend/reactivate/deactivate. */
   DELIVERY_PARTNER_MANAGE: "delivery-partner:manage",
+
+  /** A delivery partner acting on their own offer/active delivery: accept, reject, pickup, deliver, go online/offline. */
+  DELIVERY_ORDER_MANAGE_OWN: "delivery-order:manage:own",
+  /** A shop owner triggering assignment for their own shop's READY order. */
+  DELIVERY_ORDER_ASSIGN_SHOP: "delivery-order:assign:shop",
+  /** Operator/admin: trigger assignment for any order, manually reassign. */
+  DELIVERY_ORDER_MANAGE_ANY: "delivery-order:manage:any",
+  /** Set the base/per-km delivery earnings rate. ADMIN only. */
+  DELIVERY_EARNINGS_CONFIG_MANAGE: "delivery-earnings-config:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -160,6 +169,7 @@ const CUSTOMER_PERMISSIONS: readonly Permission[] = [
 const DELIVERY_PARTNER_PERMISSIONS: readonly Permission[] = [
   ...CUSTOMER_PERMISSIONS,
   PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN,
+  PERMISSIONS.DELIVERY_ORDER_MANAGE_OWN,
 ];
 
 const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
@@ -175,6 +185,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PRICE_REQUEST_DECIDE_OWN,
   PERMISSIONS.EXCEL_UPLOAD_OWN,
   PERMISSIONS.PAYMENT_VIEW_OWN,
+  PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
   // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
@@ -220,6 +231,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.GRIEVANCE_MANAGE,
   PERMISSIONS.SHOP_COMPLIANCE_MANAGE,
   PERMISSIONS.DELIVERY_PARTNER_MANAGE,
+  PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -344,4 +356,9 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN]: "View own delivery-partner profile and status",
   [PERMISSIONS.DELIVERY_PARTNER_MANAGE]:
     "Review, approve, reject, suspend or reactivate delivery partners",
+  [PERMISSIONS.DELIVERY_ORDER_MANAGE_OWN]:
+    "Go online/offline and act on own delivery offers (accept, reject, pick up, deliver)",
+  [PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP]: "Assign a delivery partner to own shop's ready orders",
+  [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY]: "Assign or reassign a delivery partner to any order",
+  [PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE]: "Set the delivery-partner base and per-km earnings rate",
 };
