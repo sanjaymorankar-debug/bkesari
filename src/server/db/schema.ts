@@ -1,5 +1,5 @@
 /**
- * Database schema — Dairy & Bakery Marketplace.
+ * Database schema — Your Neighbourhood, Now Online.
  *
  * Conventions enforced across every table:
  *  - Money is ALWAYS integer paise (bigint). ₹70.00 → 7000. Never a float.

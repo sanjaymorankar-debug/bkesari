@@ -62,11 +62,11 @@ export function SiteHeader({ user, cartCount, balancePaise, unreadCount }: Props
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-sm font-bold text-white">
-            DB
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
+            N
           </span>
           <span className="hidden text-base font-semibold text-ink-900 sm:inline">
-            Dairy &amp; Bakery
+            Your Neighbourhood, Now Online
           </span>
         </Link>
 

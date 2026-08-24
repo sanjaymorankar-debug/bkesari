@@ -8,14 +8,15 @@ export default function AboutPage() {
     <>
       <PageHeader
         title="About Us"
-        description="Fresh dairy and bakery from local shops, delivered to your door."
+        description="Your neighbourhood, now online."
       />
       <Card className="p-6">
         <div className="legal-doc max-w-none text-sm leading-relaxed text-ink-700">
           <p>
             {LEGAL_ENTITY.legalName} operates this marketplace, connecting
-            customers with independent local dairy, bakery, and grocery shops
-            in their neighbourhood. Rather than running our own warehouse or
+            customers with independent local shops — grocery, pharmacy,
+            jewellery, dairy, bakery and every other kind of shop in their
+            neighbourhood. Rather than running our own warehouse or
             fleet, we give existing local shops — the kind you&apos;d otherwise
             only find by walking past them — an online storefront, wallet
             payments, and daily subscription delivery.

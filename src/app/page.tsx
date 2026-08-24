@@ -4,7 +4,6 @@ import { ProductCard } from "@/components/product-card";
 import { ShopCard } from "@/components/shop-card";
 import { Card, EmptyState, Section } from "@/components/ui";
 import { SHOP_TYPES } from "@/lib/shop-types";
-import { getCurrentUser } from "@/server/authz/guards";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";
 
@@ -12,28 +11,21 @@ export const dynamic = "force-dynamic";
 
 /** Marketplace home (requirement §6). All content comes from the database. */
 export default async function HomePage() {
-  const user = await getCurrentUser();
-
-  const [dairyProducts, bakeryProducts, featuredShops, kesariShops, greenShops] =
-    await Promise.all([
-      listStorefrontProducts({ department: "DAIRY", onlineOnly: true, limit: 8 }),
-      listStorefrontProducts({ department: "BAKERY", onlineOnly: true, limit: 8 }),
-      searchShops({ limit: 4 }),
-      searchShops({ classification: "KESARI", limit: 4 }),
-      searchShops({ classification: "GREEN", limit: 4 }),
-    ]);
-
-  const signedIn = Boolean(user);
+  const [featuredShops, kesariShops, greenShops] = await Promise.all([
+    searchShops({ limit: 4 }),
+    searchShops({ classification: "KESARI", limit: 4 }),
+    searchShops({ classification: "GREEN", limit: 4 }),
+  ]);
 
   return (
     <>
       <section className="mb-10 overflow-hidden rounded-2xl bg-gradient-to-br from-kesari-50 via-cream-100 to-leaf-50 px-6 py-10 sm:px-10 sm:py-14">
         <h1 className="max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Every neighbourhood shop, in one directory
+          Your Neighbourhood, Now Online
         </h1>
         <p className="mt-3 max-w-xl text-base text-ink-600">
-          Find a shop near you by product, area or PIN code — from daily
-          dairy and bakery delivery to grocery, pharmacy, jewellery and more.
+          Find a shop near you by product, area or PIN code — grocery,
+          pharmacy, jewellery, hardware and every other kind of local shop.
         </p>
 
         <form action="/search" className="mt-6 flex max-w-xl gap-2">
@@ -66,22 +58,6 @@ export default async function HomePage() {
             </Link>
           ))}
         </div>
-      </Section>
-
-      <Section title="Dairy products" href="/category/DAIRY">
-        {dairyProducts.length === 0 ? (
-          <EmptyState title="No dairy products listed yet." />
-        ) : (
-          <ProductGrid products={dairyProducts} signedIn={signedIn} />
-        )}
-      </Section>
-
-      <Section title="Bakery products" href="/category/BAKERY">
-        {bakeryProducts.length === 0 ? (
-          <EmptyState title="No bakery products listed yet." />
-        ) : (
-          <ProductGrid products={bakeryProducts} signedIn={signedIn} />
-        )}
       </Section>
 
       <Section title="Featured shops" href="/shops">

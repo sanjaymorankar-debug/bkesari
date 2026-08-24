@@ -12,11 +12,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Dairy & Bakery Marketplace",
-    template: "%s · Dairy & Bakery",
+    default: "Your Neighbourhood, Now Online",
+    template: "%s · Your Neighbourhood, Now Online",
   },
   description:
-    "Fresh dairy and bakery from local shops. Wallet payments and flexible daily subscriptions.",
+    "Every local shop near you, in one directory. Wallet payments and flexible daily subscriptions.",
 };
 
 export const viewport: Viewport = {
@@ -54,7 +54,8 @@ export default async function RootLayout({
         <footer className="border-t border-cream-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
             <p className="mb-1">
-              Dairy &amp; Bakery Marketplace — fresh from shops near you.
+              Your Neighbourhood, Now Online — every local shop near you, in
+              one directory.
             </p>
             <p className="mb-3">
               {LEGAL_ENTITY.legalName} · GSTIN: {LEGAL_ENTITY.gstin}
