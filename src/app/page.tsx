@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 import { ProductCard } from "@/components/product-card";
-import { ShopCard } from "@/components/shop-card";
-import { Card, EmptyState, Section } from "@/components/ui";
+import { ShopGrid } from "@/components/shop-grid";
+import { Card, Section } from "@/components/ui";
 import { SHOP_TYPES } from "@/lib/shop-types";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";
@@ -146,23 +146,6 @@ export function ProductGrid({
             shopSlug: p.shopSlug,
           }}
         />
-      ))}
-    </div>
-  );
-}
-
-export function ShopGrid({
-  shops,
-}: {
-  shops: Awaited<ReturnType<typeof searchShops>>;
-}) {
-  if (shops.length === 0) {
-    return <EmptyState title="No shops found." />;
-  }
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {shops.map((shop) => (
-        <ShopCard key={shop.id} shop={shop} />
       ))}
     </div>
   );

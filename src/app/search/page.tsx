@@ -1,5 +1,6 @@
-import { ProductGrid, ShopGrid } from "@/app/page";
+import { ProductGrid } from "@/app/page";
 import { EmptyState, PageHeader, Section } from "@/components/ui";
+import { ShopGrid } from "@/components/shop-grid";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";

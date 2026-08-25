@@ -818,21 +818,7 @@ export async function listShopsByStatus(status: ShopStatus): Promise<Shop[]> {
 }
 
 /** Whether the shop is open right now, per its configured opening hours. */
-export function isShopOpenNow(shop: Shop, now: Date = new Date()): boolean {
-  const hours = shop.openingHours;
-  if (!hours || hours.length === 0) return true; // unset means always open
-
-  const day = now.getDay(); // 0 = Sunday
-  const today = hours.find((h) => h.day === day);
-  if (!today || today.closed) return false;
-
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const toMinutes = (hhmm: string) => {
-    const [h, m] = hhmm.split(":").map(Number);
-    return h * 60 + m;
-  };
-  return minutes >= toMinutes(today.open) && minutes <= toMinutes(today.close);
-}
+export { isShopOpenNow } from "@/lib/shop-hours";
 
 export async function countShopsByStatus(): Promise<Record<string, number>> {
   const rows = await db

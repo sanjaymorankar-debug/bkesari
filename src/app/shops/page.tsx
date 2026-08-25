@@ -1,5 +1,5 @@
-import { ShopGrid } from "@/app/page";
 import { Card, PageHeader } from "@/components/ui";
+import { ShopGrid } from "@/components/shop-grid";
 import { SHOP_TYPES, type ShopTypeKey } from "@/lib/shop-types";
 import { searchShops } from "@/server/services/shops";
 
@@ -72,17 +72,6 @@ export default async function ShopsPage({
               </option>
             ))}
           </select>
-          <select
-            name="classification"
-            defaultValue={params.classification ?? ""}
-            aria-label="Classification"
-            className="rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
-          >
-            <option value="">Kesari &amp; Green</option>
-            <option value="KESARI">Kesari only</option>
-            <option value="GREEN">Green only</option>
-          </select>
-
           <label className="flex items-center gap-2 text-sm text-ink-600">
             <input
               type="checkbox"
