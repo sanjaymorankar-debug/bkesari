@@ -42,6 +42,24 @@ const serverEnvSchema = z.object({
    */
   GOOGLE_MAPS_SERVER_API_KEY: z.string().optional(),
 
+  /**
+   * GST/PAN verification providers (marketplace GST-readiness follow-up).
+   * No provider is chosen yet — absent in every environment today, so
+   * verification runs in self-declared mode (see gst-pan-verification.ts):
+   * the shop owner's submission is stored as PENDING_VERIFICATION for an
+   * admin to confirm by hand, never silently marked verified. Filling
+   * these in later is a config change, not a code change.
+   */
+  GST_PROVIDER_API_KEY: z.string().optional(),
+  PAN_PROVIDER_API_KEY: z.string().optional(),
+
+  /**
+   * Base64-encoded 32-byte AES-256-GCM key for encrypting PAN numbers at
+   * rest. Required before any PAN can be submitted — there is deliberately
+   * no fallback to plaintext storage.
+   */
+  PAN_ENCRYPTION_KEY: z.string().optional(),
+
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
 
@@ -96,6 +114,18 @@ export function cashfreeApiBase(): string {
 /** True when the server-side Geocoding key is configured. */
 export function isGeocodingConfigured(): boolean {
   return Boolean(getEnv().GOOGLE_MAPS_SERVER_API_KEY);
+}
+
+export function isGstProviderConfigured(): boolean {
+  return Boolean(getEnv().GST_PROVIDER_API_KEY);
+}
+
+export function isPanProviderConfigured(): boolean {
+  return Boolean(getEnv().PAN_PROVIDER_API_KEY);
+}
+
+export function isPanEncryptionConfigured(): boolean {
+  return Boolean(getEnv().PAN_ENCRYPTION_KEY);
 }
 
 /**

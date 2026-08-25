@@ -145,6 +145,13 @@ export const PERMISSIONS = {
   DELIVERY_ORDER_MANAGE_ANY: "delivery-order:manage:any",
   /** Set the base/per-km delivery earnings rate. ADMIN only. */
   DELIVERY_EARNINGS_CONFIG_MANAGE: "delivery-earnings-config:manage",
+
+  /** Submit/update own shop's GSTIN and PAN for verification. */
+  SHOP_GST_PAN_MANAGE_OWN: "shop-gst-pan:manage:own",
+  /** Admin/operator: confirm or reject a submitted GSTIN/PAN by hand (no automated provider configured). */
+  SHOP_GST_PAN_VERIFY: "shop-gst-pan:verify",
+  /** Decrypt and view a shop's full PAN number. ADMIN only — every use is audited. */
+  SHOP_PAN_REVEAL: "shop-pan:reveal",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -186,6 +193,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.EXCEL_UPLOAD_OWN,
   PERMISSIONS.PAYMENT_VIEW_OWN,
   PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP,
+  PERMISSIONS.SHOP_GST_PAN_MANAGE_OWN,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
   // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
@@ -232,6 +240,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.SHOP_COMPLIANCE_MANAGE,
   PERMISSIONS.DELIVERY_PARTNER_MANAGE,
   PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY,
+  PERMISSIONS.SHOP_GST_PAN_VERIFY,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -361,4 +370,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP]: "Assign a delivery partner to own shop's ready orders",
   [PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY]: "Assign or reassign a delivery partner to any order",
   [PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE]: "Set the delivery-partner base and per-km earnings rate",
+  [PERMISSIONS.SHOP_GST_PAN_MANAGE_OWN]: "Submit own shop's GSTIN and PAN for verification",
+  [PERMISSIONS.SHOP_GST_PAN_VERIFY]: "Confirm or reject a shop's submitted GSTIN or PAN",
+  [PERMISSIONS.SHOP_PAN_REVEAL]: "Decrypt and view a shop's full PAN number",
 };

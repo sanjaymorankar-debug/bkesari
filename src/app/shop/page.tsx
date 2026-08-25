@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
+import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
@@ -26,6 +27,7 @@ import {
   listShopProducts,
   suggestProductsForShopType,
 } from "@/server/services/catalogue";
+import { getMaskedPan } from "@/server/services/gst-pan-verification";
 import { listOrdersForShop } from "@/server/services/orders";
 import { listPendingForShop } from "@/server/services/price-requests";
 import { getReferralCodeById } from "@/server/services/referrals";
@@ -249,6 +251,18 @@ export default async function ShopDashboardPage() {
 
       <div className="mb-8">
         <ShopSettingsForm shopId={shop.id} initialHours={shop.openingHours} />
+      </div>
+
+      <div className="mb-8">
+        <ShopGstPanForm
+          settings={{
+            shopId: shop.id,
+            gstStatus: shop.gstStatus,
+            gstin: shop.gstin,
+            panStatus: shop.panStatus,
+            panMasked: getMaskedPan(shop),
+          }}
+        />
       </div>
 
       <div className="mb-8">

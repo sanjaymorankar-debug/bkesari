@@ -86,6 +86,16 @@ export const AUDIT_ACTIONS = {
   /* --------------------------------------------- seller/food compliance */
   SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
 
+  /* --------------------------------------------- GST/PAN verification */
+  SHOP_GST_SUBMITTED: "shop.gst_submitted",
+  SHOP_GST_VERIFIED: "shop.gst_verified",
+  SHOP_GST_REJECTED: "shop.gst_rejected",
+  SHOP_PAN_SUBMITTED: "shop.pan_submitted",
+  SHOP_PAN_VERIFIED: "shop.pan_verified",
+  SHOP_PAN_REJECTED: "shop.pan_rejected",
+  /** Every full-PAN decrypt is audited — see revealPanForAdmin(). */
+  SHOP_PAN_REVEALED: "shop.pan_revealed",
+
   /* --------------------------------------------- delivery partners (Part 58) */
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
   DELIVERY_PARTNER_STATUS_CHANGED: "delivery_partner.status_changed",

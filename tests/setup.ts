@@ -32,3 +32,11 @@ env.CASHFREE_SECRET_KEY = "test-webhook-secret";
 // Fake key so isGeocodingConfigured() is true — tests that exercise the
 // verify-location path stub global.fetch, so this never makes a real call.
 env.GOOGLE_MAPS_SERVER_API_KEY ??= "test-google-maps-key";
+// Force-cleared: no GST/PAN verification provider exists yet, and every test
+// here assumes the self-declared/PENDING_VERIFICATION path (see
+// gst-pan-verification.ts) — never the provider-lookup path.
+env.GST_PROVIDER_API_KEY = "";
+env.PAN_PROVIDER_API_KEY = "";
+// Fixed test-only AES-256 key (32 bytes, base64) so PAN encryption tests
+// don't depend on a real secret ever landing in .env.
+env.PAN_ENCRYPTION_KEY ??= "VEqrHq1Y8qZmFzw8A9VFcDd+fsBqEXDUOA/9d0ieO+U=";

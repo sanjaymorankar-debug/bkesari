@@ -63,6 +63,39 @@ export const classificationEnum = pgEnum("shop_classification", [
 ]);
 
 /**
+ * GST registration status (marketplace GST-readiness follow-up). Not every
+ * shop is GST-registered, and GST registration itself is never assumed or
+ * invented — a shop starts UNKNOWN until the owner actively says one way or
+ * the other. PENDING_VERIFICATION means a GSTIN was submitted but no
+ * verification provider is configured yet, so an admin confirms it by hand
+ * (see gst-pan-verification.ts) — this is never silently treated as
+ * REGISTERED.
+ */
+export const gstStatusEnum = pgEnum("gst_status", [
+  "UNKNOWN",
+  "NOT_REGISTERED",
+  "PENDING_VERIFICATION",
+  "REGISTERED",
+  "COMPOSITION",
+  "VERIFICATION_FAILED",
+]);
+
+/** Mirrors gstStatusEnum's verification states for PAN — a separate credential, verified independently. */
+export const panStatusEnum = pgEnum("pan_status", [
+  "UNKNOWN",
+  "PENDING_VERIFICATION",
+  "VERIFIED",
+  "VERIFICATION_FAILED",
+]);
+
+/** Provenance for a GST/PAN status — same shape as shops.locationSource, for the same audit reason. */
+export const identityVerificationSourceEnum = pgEnum("identity_verification_source", [
+  "PROVIDER_VERIFIED",
+  "SELF_DECLARED",
+  "ADMIN_VERIFIED",
+]);
+
+/**
  * Which shop type a product category belongs to. Reuses the same value set as
  * shopTypeEnum: a catalogue category is always scoped to one shop type (e.g.
  * "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
@@ -548,6 +581,30 @@ export const shops = pgTable(
     gstin: text("gstin"),
     /** FSSAI licence/registration number — relevant for food-category shop types. */
     fssaiLicenseNumber: text("fssai_license_number"),
+
+    /* ---------------------------------------------------- GST/PAN self-service
+     * verification (marketplace GST-readiness follow-up). Distinct from the
+     * admin-only `legalBusinessName`/`gstin` pair above: those are the
+     * platform's own compliance-review edit path (Part 58), while these
+     * columns back the shop owner's own self-service submission and its
+     * verification state. A successful verification still writes through to
+     * `legalBusinessName`/`gstin` above, so there's one source of truth for
+     * what's actually displayed to buyers. */
+    gstStatus: gstStatusEnum("gst_status").notNull().default("UNKNOWN"),
+    gstTradeName: text("gst_trade_name"),
+    gstVerificationSource: identityVerificationSourceEnum("gst_verification_source"),
+    gstVerifiedAt: timestamp("gst_verified_at", { withTimezone: true }),
+    gstVerifiedBy: uuid("gst_verified_by").references(() => users.id),
+
+    panStatus: panStatusEnum("pan_status").notNull().default("UNKNOWN"),
+    /** AES-256-GCM ciphertext, base64 — see gst-pan-verification.ts. Never stored or logged in plaintext. */
+    panNumberEncrypted: text("pan_number_encrypted"),
+    /** Last 4 characters only, plaintext — enough for a masked "XXXXXX1234F" display without decrypting. */
+    panLast4: text("pan_last4"),
+    panHolderName: text("pan_holder_name"),
+    panVerificationSource: identityVerificationSourceEnum("pan_verification_source"),
+    panVerifiedAt: timestamp("pan_verified_at", { withTimezone: true }),
+    panVerifiedBy: uuid("pan_verified_by").references(() => users.id),
     /**
      * Shop-specific return/refund terms shown to buyers before purchase. Null
      * means the platform default (Refund & Cancellation Policy) applies.
@@ -2138,6 +2195,9 @@ export const mapsApiCallLog = pgTable(
 
 export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
+export type GstStatus = (typeof gstStatusEnum.enumValues)[number];
+export type PanStatus = (typeof panStatusEnum.enumValues)[number];
+export type IdentityVerificationSource = (typeof identityVerificationSourceEnum.enumValues)[number];
 export type ProductCategory = typeof productCategories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type ShopProduct = typeof shopProducts.$inferSelect;

@@ -7,6 +7,7 @@ import { ComplianceDashboard } from "@/components/compliance-dashboard";
 import { DeliveryEarningsConfigManager } from "@/components/delivery-earnings-config-manager";
 import { DeliveryPartnerQueue } from "@/components/delivery-partner-queue";
 import { GrievanceManager } from "@/components/grievance-manager";
+import { GstPanVerificationQueue } from "@/components/gst-pan-verification-queue";
 import { MapsUsagePanel } from "@/components/maps-usage-panel";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { ProductApprovalQueue } from "@/components/product-approval-queue";
@@ -34,6 +35,7 @@ import {
   listDeliveryPartners,
 } from "@/server/services/delivery-partners";
 import { getGrievanceDashboard, listGrievances } from "@/server/services/grievances";
+import { getMaskedPan, listPendingGstPanVerifications } from "@/server/services/gst-pan-verification";
 import { getMapsUsageSummary } from "@/server/services/maps-usage";
 import { listAllPending } from "@/server/services/price-requests";
 import {
@@ -89,6 +91,7 @@ export default async function AdminPage() {
   const canViewMapsUsage = can(user.role, PERMISSIONS.MAPS_USAGE_VIEW);
   const canManageDeliveryPartners = can(user.role, PERMISSIONS.DELIVERY_PARTNER_MANAGE);
   const canManageEarningsConfig = can(user.role, PERMISSIONS.DELIVERY_EARNINGS_CONFIG_MANAGE);
+  const canVerifyGstPan = can(user.role, PERMISSIONS.SHOP_GST_PAN_VERIFY);
 
   const [
     pending,
@@ -140,6 +143,7 @@ export default async function AdminPage() {
     deliveryPartnerList,
     deliveryPartnerCounts,
     earningsConfig,
+    pendingGstPan,
   ] = await Promise.all([
     searchShopsAdmin({ limit: 500 }),
     getRegistrationFeeReport(),
@@ -175,6 +179,7 @@ export default async function AdminPage() {
     canManageDeliveryPartners ? listDeliveryPartners() : Promise.resolve([]),
     canManageDeliveryPartners ? countDeliveryPartnersByStatus() : Promise.resolve({}),
     canManageEarningsConfig ? getActiveEarningsConfig() : Promise.resolve(null),
+    canVerifyGstPan ? listPendingGstPanVerifications() : Promise.resolve([]),
   ]);
 
   const [activeFee, feeHistory] = feeConfig as [
@@ -314,6 +319,23 @@ export default async function AdminPage() {
               gstin: s.gstin,
               fssaiLicenseNumber: s.fssaiLicenseNumber,
               returnPolicyText: s.returnPolicyText,
+            }))}
+          />
+        </Section>
+      ) : null}
+
+      {canVerifyGstPan ? (
+        <Section title={`GST & PAN verification (${pendingGstPan.length})`}>
+          <GstPanVerificationQueue
+            shops={pendingGstPan.map((s) => ({
+              id: s.id,
+              name: s.name,
+              city: s.city,
+              gstStatus: s.gstStatus,
+              gstin: s.gstin,
+              panStatus: s.panStatus,
+              panMasked: getMaskedPan(s),
+              panHolderName: s.panHolderName,
             }))}
           />
         </Section>

@@ -35,6 +35,10 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_REJECTED: "delivery_partner.rejected",
   DELIVERY_PARTNER_SUSPENDED: "delivery_partner.suspended",
   DELIVERY_OFFERED: "delivery.offered",
+  SHOP_GST_VERIFIED: "shop.gst_verified",
+  SHOP_GST_REJECTED: "shop.gst_rejected",
+  SHOP_PAN_VERIFIED: "shop.pan_verified",
+  SHOP_PAN_REJECTED: "shop.pan_rejected",
 } as const;
 
 export type NotificationType =
