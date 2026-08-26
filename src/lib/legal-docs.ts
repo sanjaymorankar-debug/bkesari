@@ -16,17 +16,17 @@ export const CURRENT_POLICY_VERSION = "2026-08-21";
  * it in.
  */
 export const LEGAL_ENTITY = {
-  legalName: "[PLACEHOLDER: Registered legal/company name]",
-  registeredAddress: "[PLACEHOLDER: Registered office address]",
-  cinOrRegistrationNumber: "[PLACEHOLDER: CIN / business registration number, if applicable]",
-  gstin: "[PLACEHOLDER: Platform GSTIN, if applicable]",
+  legalName: "ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED",
+  registeredAddress: "Flat No B-1102, Yin Yang CHS, Opp EoN IT Park Phase II, Kharadi, Pune 411014",
+  cinOrRegistrationNumber: "U70200PN2025PTC241573",
+  gstin: "27ABCCA8318D1ZV",
   supportEmail: "support@bkesari.com",
   grievanceOfficer: {
-    name: "[PLACEHOLDER: Grievance Officer name]",
+    name: "Sonali",
     designation: "Grievance Officer",
     email: "grievance@bkesari.com",
-    phone: "[PLACEHOLDER: Grievance Officer phone number]",
-    address: "[PLACEHOLDER: Grievance Officer postal address]",
+    phone: "9175193009",
+    address: "Flat No B-1102, Yin Yang CHS, Opp EoN IT Park Phase II, Kharadi, Pune 411014",
   },
 };
 
