@@ -18,8 +18,8 @@ export default async function BecomeDeliveryPartnerPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
-        title="Become a Bkesari Delivery Partner"
-        description="Join Bkesari as an independent delivery partner."
+        title="Become a GoKesari Delivery Partner"
+        description="Join GoKesari as an independent delivery partner."
       />
 
       <Card className="mb-6 p-6">

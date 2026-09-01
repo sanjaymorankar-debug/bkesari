@@ -97,7 +97,7 @@ export default async function HomePage() {
       <Card className="mb-6 flex flex-wrap items-center justify-between gap-4 p-6">
         <div>
           <h2 className="text-lg font-semibold text-ink-900">
-            Want to deliver for Bkesari?
+            Want to deliver for GoKesari?
           </h2>
           <p className="mt-1 text-sm text-ink-500">
             Join as an independent delivery partner — flexible hours, earn per
