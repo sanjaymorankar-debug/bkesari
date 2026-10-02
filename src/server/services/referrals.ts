@@ -6,7 +6,7 @@
  * so a shop can never be double-attributed — the database refuses it rather than
  * relying on a service-layer check.
  */
-import { and, desc, eq, ilike, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, like, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -20,6 +20,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
+import { insertReturning, updateReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -56,18 +57,15 @@ export async function createReferralCode(
   });
   if (existing) throw conflict("That referral code already exists.");
 
-  const [created] = await db
-    .insert(referralCodes)
-    .values({
-      code,
-      label: input.label ?? null,
-      referrerName: input.referrerName ?? null,
-      referrerUserId: input.referrerUserId ?? null,
-      expiresAt: input.expiresAt ?? null,
-      note: input.note ?? null,
-      createdBy: actor.id,
-    })
-    .returning();
+  const [created] = await insertReturning(db, referralCodes, {
+    code,
+    label: input.label ?? null,
+    referrerName: input.referrerName ?? null,
+    referrerUserId: input.referrerUserId ?? null,
+    expiresAt: input.expiresAt ?? null,
+    note: input.note ?? null,
+    createdBy: actor.id,
+  });
 
   await recordAudit({
     actorId: actor.id,
@@ -90,11 +88,7 @@ export async function updateReferralCode(
   });
   if (!current) throw notFound("Referral code");
 
-  const [updated] = await db
-    .update(referralCodes)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(referralCodes.id, id))
-    .returning();
+  const [updated] = await updateReturning(db, referralCodes, { ...patch, updatedAt: new Date() }, eq(referralCodes.id, id));
 
   await recordAudit({
     actorId: actor.id,
@@ -211,13 +205,13 @@ export async function listReferralCodes(options: {
 } = {}): Promise<(ReferralCode & { shopCount: number })[]> {
   const filters = [];
   if (options.status) filters.push(eq(referralCodes.status, options.status));
-  if (options.search) filters.push(ilike(referralCodes.code, `%${options.search}%`));
+  if (options.search) filters.push(like(referralCodes.code, `%${options.search}%`));
 
   const rows = await db
     .select({
       code: referralCodes,
       shopCount: sql<number>`(
-        SELECT COUNT(*)::int FROM ${referralRedemptions}
+        SELECT COUNT(*) FROM ${referralRedemptions}
         WHERE ${referralRedemptions.referralCodeId} = ${referralCodes.id}
       )`,
     })
@@ -238,8 +232,8 @@ export async function getReferralPerformance() {
       label: referralCodes.label,
       referrerName: referralCodes.referrerName,
       status: referralCodes.status,
-      shopCount: sql<number>`COUNT(${referralRedemptions.id})::int`,
-      feesAttributedPaise: sql<number>`COALESCE(SUM(${referralRedemptions.registrationFeePaise}), 0)::bigint`,
+      shopCount: sql<number>`COUNT(${referralRedemptions.id})`,
+      feesAttributedPaise: sql<number>`CAST(COALESCE(SUM(${referralRedemptions.registrationFeePaise}), 0) AS SIGNED)`,
     })
     .from(referralCodes)
     .leftJoin(

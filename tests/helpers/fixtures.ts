@@ -24,46 +24,67 @@ import {
 import type { ShopTypeKey } from "@/lib/shop-types";
 import type { VehicleTypeKey } from "@/lib/vehicle-types";
 
+import { insertReturning } from "@/server/db/returning";
+import { nextProductCode, nextShopRegistrationNumber } from "@/server/db/sequences";
 let counter = 0;
 const uniq = () => `${Date.now().toString(36)}-${(counter += 1)}`;
 
-/** Wipes all business data between tests. Order is handled by CASCADE. */
+/**
+ * Wipes all business data between tests.
+ *
+ * MySQL truncates one table per statement, refuses to TRUNCATE a table that
+ * another table's foreign key points at, and has no `CASCADE` or
+ * `RESTART IDENTITY`. Suspending the foreign-key checks for the duration is the
+ * standard way to wipe a whole schema; TRUNCATE resets each AUTO_INCREMENT
+ * counter on its own, which covers the reference-number sequence tables.
+ *
+ * This runs inside a transaction purely for connection affinity:
+ * `FOREIGN_KEY_CHECKS` is a session variable, and on a pool the SET and the
+ * TRUNCATEs could otherwise land on different connections.
+ */
+const RESET_TABLES = [
+  "grievances", "user_consents",
+  "delivery_partner_earnings", "delivery_earnings_config", "delivery_orders",
+  "maps_api_call_log", "delivery_partners",
+  "audit_logs", "notifications",
+  "price_update_requests", "price_update_batches",
+  "excel_upload_items", "excel_uploads",
+  "shop_payments", "referral_redemptions", "referral_codes",
+  "registration_fee_history", "registration_fees",
+  "voucher_redemptions", "voucher_upload_items", "voucher_uploads", "vouchers",
+  "subscription_orders", "subscription_daily_overrides", "subscriptions",
+  "wallet_transactions", "wallets", "payments",
+  "order_status_history", "order_items", "orders",
+  "cart_items", "carts",
+  "inventory_movements", "product_price_history", "shop_products",
+  "products", "product_categories",
+  "shop_classification_history", "shops",
+  "addresses",
+  "sessions", "accounts", "users",
+  "shop_registration_seq", "product_code_seq", "grievance_ticket_seq",
+] as const;
+
 export async function resetDatabase(): Promise<void> {
-  await db.execute(sql`
-    TRUNCATE TABLE
-      grievances, user_consents,
-      delivery_partner_earnings, delivery_earnings_config, delivery_orders,
-      maps_api_call_log, delivery_partners,
-      audit_logs, notifications,
-      price_update_requests, price_update_batches,
-      excel_upload_items, excel_uploads,
-      shop_payments, referral_redemptions, referral_codes,
-      registration_fee_history, registration_fees,
-      voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
-      subscription_orders, subscription_daily_overrides, subscriptions,
-      wallet_transactions, wallets, payments,
-      order_status_history, order_items, orders,
-      cart_items, carts,
-      inventory_movements, product_price_history, shop_products,
-      products, product_categories,
-      shop_classification_history, shops,
-      addresses,
-      sessions, accounts, users
-    RESTART IDENTITY CASCADE
-  `);
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SET FOREIGN_KEY_CHECKS = 0`);
+    try {
+      for (const table of RESET_TABLES) {
+        await tx.execute(sql.raw(`TRUNCATE TABLE \`${table}\``));
+      }
+    } finally {
+      await tx.execute(sql`SET FOREIGN_KEY_CHECKS = 1`);
+    }
+  });
 }
 
 export async function createUser(
   overrides: { email?: string; role?: UserRole; name?: string } = {},
 ) {
-  const [user] = await db
-    .insert(users)
-    .values({
-      email: overrides.email ?? `user-${uniq()}@test.local`,
-      name: overrides.name ?? "Test User",
-      role: overrides.role ?? "CUSTOMER",
-    })
-    .returning();
+  const [user] = await insertReturning(db, users, {
+    email: overrides.email ?? `user-${uniq()}@test.local`,
+    name: overrides.name ?? "Test User",
+    role: overrides.role ?? "CUSTOMER",
+  });
   return user;
 }
 
@@ -71,10 +92,7 @@ export async function createUserWithWallet(
   overrides: { email?: string; role?: UserRole; balancePaise?: number } = {},
 ) {
   const user = await createUser(overrides);
-  const [wallet] = await db
-    .insert(wallets)
-    .values({ userId: user.id, balancePaise: overrides.balancePaise ?? 0 })
-    .returning();
+  const [wallet] = await insertReturning(db, wallets, { userId: user.id, balancePaise: overrides.balancePaise ?? 0 });
   return { user, wallet };
 }
 
@@ -82,14 +100,11 @@ export async function createCategory(
   overrides: { department?: Department; name?: string } = {},
 ) {
   const name = overrides.name ?? "Milk";
-  const [category] = await db
-    .insert(productCategories)
-    .values({
-      department: overrides.department ?? "DAIRY",
-      name,
-      slug: `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq()}`,
-    })
-    .returning();
+  const [category] = await insertReturning(db, productCategories, {
+    department: overrides.department ?? "DAIRY",
+    name,
+    slug: `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq()}`,
+  });
   return category;
 }
 
@@ -98,17 +113,15 @@ export async function createProduct(
   overrides: { name?: string; unit?: string; subscribable?: boolean } = {},
 ) {
   const name = overrides.name ?? "Cow Milk";
-  const [product] = await db
-    .insert(products)
-    .values({
+  const [product] = await insertReturning(db, products, {
+    code: await nextProductCode(db),
       categoryId,
       name,
       slug: `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq()}`,
       unit: overrides.unit ?? "L",
       unitSizeMilli: 1000,
       subscribable: overrides.subscribable ?? true,
-    })
-    .returning();
+    });
   return product;
 }
 
@@ -127,9 +140,8 @@ export async function createShop(
   } = {},
 ) {
   const name = overrides.name ?? "Test Dairy";
-  const [shop] = await db
-    .insert(shops)
-    .values({
+  const [shop] = await insertReturning(db, shops, {
+    registrationNumber: await nextShopRegistrationNumber(db),
       ownerId,
       name,
       slug: `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq()}`,
@@ -149,8 +161,7 @@ export async function createShop(
       latitude: overrides.latitude != null ? String(overrides.latitude) : null,
       longitude: overrides.longitude != null ? String(overrides.longitude) : null,
       preparationTimeMinutes: overrides.preparationTimeMinutes ?? 15,
-    })
-    .returning();
+    });
   return shop;
 }
 
@@ -170,21 +181,18 @@ export async function createDeliveryPartner(
     operatingRadiusKm?: number;
   } = {},
 ) {
-  const [partner] = await db
-    .insert(deliveryPartners)
-    .values({
-      userId,
-      fullName: "Test Rider",
-      mobile: "9876543210",
-      vehicleType: overrides.vehicleType ?? "MOTORCYCLE",
-      status: overrides.status ?? "APPROVED",
-      isOnline: overrides.isOnline ?? false,
-      operatingRadiusKm: overrides.operatingRadiusKm ?? 5,
-      lastLocationLatitude: overrides.latitude != null ? String(overrides.latitude) : null,
-      lastLocationLongitude: overrides.longitude != null ? String(overrides.longitude) : null,
-      lastLocationAt: overrides.latitude != null ? new Date() : null,
-    })
-    .returning();
+  const [partner] = await insertReturning(db, deliveryPartners, {
+    userId,
+    fullName: "Test Rider",
+    mobile: "9876543210",
+    vehicleType: overrides.vehicleType ?? "MOTORCYCLE",
+    status: overrides.status ?? "APPROVED",
+    isOnline: overrides.isOnline ?? false,
+    operatingRadiusKm: overrides.operatingRadiusKm ?? 5,
+    lastLocationLatitude: overrides.latitude != null ? String(overrides.latitude) : null,
+    lastLocationLongitude: overrides.longitude != null ? String(overrides.longitude) : null,
+    lastLocationAt: overrides.latitude != null ? new Date() : null,
+  });
   return partner;
 }
 
@@ -203,31 +211,28 @@ export async function createShopProduct(
   } = {},
 ) {
   const onlineEnabled = overrides.onlineSaleEnabled ?? true;
-  const [shopProduct] = await db
-    .insert(shopProducts)
-    .values({
-      shopId,
-      productId,
-      onlineSaleEnabled: onlineEnabled,
-      onlinePricePaise:
-        overrides.onlinePricePaise !== undefined
-          ? overrides.onlinePricePaise
-          : onlineEnabled
-            ? 7000
-            : null,
-      offlineSaleEnabled: overrides.offlineSaleEnabled ?? false,
-      offlinePricePaise:
-        overrides.offlinePricePaise !== undefined
-          ? overrides.offlinePricePaise
-          : (overrides.offlineSaleEnabled ?? false)
-            ? 6500
-            : null,
-      onlineStock: overrides.onlineStock ?? 100,
-      trackInventory: overrides.trackInventory ?? true,
-      isActive: overrides.isActive ?? true,
-      isAvailable: overrides.isAvailable ?? true,
-    })
-    .returning();
+  const [shopProduct] = await insertReturning(db, shopProducts, {
+    shopId,
+    productId,
+    onlineSaleEnabled: onlineEnabled,
+    onlinePricePaise:
+      overrides.onlinePricePaise !== undefined
+        ? overrides.onlinePricePaise
+        : onlineEnabled
+          ? 7000
+          : null,
+    offlineSaleEnabled: overrides.offlineSaleEnabled ?? false,
+    offlinePricePaise:
+      overrides.offlinePricePaise !== undefined
+        ? overrides.offlinePricePaise
+        : (overrides.offlineSaleEnabled ?? false)
+          ? 6500
+          : null,
+    onlineStock: overrides.onlineStock ?? 100,
+    trackInventory: overrides.trackInventory ?? true,
+    isActive: overrides.isActive ?? true,
+    isAvailable: overrides.isAvailable ?? true,
+  });
   return shopProduct;
 }
 
@@ -261,15 +266,12 @@ export async function createPayment(
   userId: string,
   overrides: { amountPaise?: number; status?: "CREATED" | "SUCCESS" } = {},
 ) {
-  const [payment] = await db
-    .insert(payments)
-    .values({
-      userId,
-      gatewayOrderId: `mock_order_${uniq()}`,
-      amountPaise: overrides.amountPaise ?? 100_000,
-      status: overrides.status ?? "SUCCESS",
-    })
-    .returning();
+  const [payment] = await insertReturning(db, payments, {
+    userId,
+    gatewayOrderId: `mock_order_${uniq()}`,
+    amountPaise: overrides.amountPaise ?? 100_000,
+    status: overrides.status ?? "SUCCESS",
+  });
   return payment;
 }
 
@@ -289,23 +291,20 @@ export async function createVoucher(
     createdBy?: string | null;
   } = {},
 ) {
-  const [voucher] = await db
-    .insert(vouchers)
-    .values({
-      name: overrides.name ?? "Test Voucher",
-      code: overrides.code ?? `TEST${uniq().toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
-      applyMode: "CODE",
-      bonusPercent: overrides.bonusPercent ?? 10,
-      minimumTopupPaise: overrides.minimumTopupPaise ?? 0,
-      maximumBonusPaise: overrides.maximumBonusPaise ?? null,
-      startDate: overrides.startDate ?? "2020-01-01",
-      endDate: overrides.endDate ?? "2099-12-31",
-      usageLimit: overrides.usageLimit ?? null,
-      perCustomerLimit: overrides.perCustomerLimit ?? 1,
-      totalBudgetPaise: overrides.totalBudgetPaise ?? null,
-      status: overrides.status ?? "ACTIVE",
-      createdBy: overrides.createdBy ?? null,
-    })
-    .returning();
+  const [voucher] = await insertReturning(db, vouchers, {
+    name: overrides.name ?? "Test Voucher",
+    code: overrides.code ?? `TEST${uniq().toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+    applyMode: "CODE",
+    bonusPercent: overrides.bonusPercent ?? 10,
+    minimumTopupPaise: overrides.minimumTopupPaise ?? 0,
+    maximumBonusPaise: overrides.maximumBonusPaise ?? null,
+    startDate: overrides.startDate ?? "2020-01-01",
+    endDate: overrides.endDate ?? "2099-12-31",
+    usageLimit: overrides.usageLimit ?? null,
+    perCustomerLimit: overrides.perCustomerLimit ?? 1,
+    totalBudgetPaise: overrides.totalBudgetPaise ?? null,
+    status: overrides.status ?? "ACTIVE",
+    createdBy: overrides.createdBy ?? null,
+  });
   return voucher;
 }

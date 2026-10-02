@@ -16,7 +16,7 @@
  * past the parser is integer paise.
  */
 import ExcelJS from "exceljs";
-import { and, eq, ilike, inArray, isNull } from "drizzle-orm";
+import { and, eq, like, inArray, isNull } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -35,6 +35,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { appliesImmediately, submitPriceRequests } from "./price-requests";
 import { createShopProduct, createProductForShop, findSimilarProducts, updateShopProduct } from "./catalogue";
 
+import { insertReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -462,7 +463,7 @@ export async function validateUpload(
             .where(
               and(
                 eq(productCategories.department, shopDepartment),
-                ilike(productCategories.name, row.category),
+                like(productCategories.name, row.category),
                 isNull(productCategories.deletedAt),
               ),
             )
@@ -541,24 +542,21 @@ export async function validateUpload(
   };
 
   return db.transaction(async (tx) => {
-    const [upload] = await tx
-      .insert(excelUploads)
-      .values({
-        shopId: input.shopId,
-        uploadedBy: actor.id,
-        uploadType: input.uploadType ?? "PRICES",
-        status: "VALIDATED",
-        fileName: input.fileName,
-        fileSizeBytes: input.buffer.byteLength,
-        totalRows: counts.total,
-        validRows: counts.valid,
-        invalidRows: counts.invalid,
-        unchangedRows: counts.unchanged,
-        duplicateRows: counts.duplicate,
-        notFoundRows: counts.notFound,
-        summary: counts,
-      })
-      .returning();
+    const [upload] = await insertReturning(tx, excelUploads, {
+      shopId: input.shopId,
+      uploadedBy: actor.id,
+      uploadType: input.uploadType ?? "PRICES",
+      status: "VALIDATED",
+      fileName: input.fileName,
+      fileSizeBytes: input.buffer.byteLength,
+      totalRows: counts.total,
+      validRows: counts.valid,
+      invalidRows: counts.invalid,
+      unchangedRows: counts.unchanged,
+      duplicateRows: counts.duplicate,
+      notFoundRows: counts.notFound,
+      summary: counts,
+    });
 
     if (rows.length > 0) {
       await tx.insert(excelUploadItems).values(
@@ -737,7 +735,7 @@ export async function applyUpload(
       const resolvedCategory = categoryName
         ? await tx.query.productCategories.findFirst({
             where: and(
-              ilike(productCategories.name, categoryName),
+              like(productCategories.name, categoryName),
               isNull(productCategories.deletedAt),
             ),
           })

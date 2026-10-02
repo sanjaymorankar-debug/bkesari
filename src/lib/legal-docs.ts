@@ -20,11 +20,11 @@ export const LEGAL_ENTITY = {
   registeredAddress: "Flat No B-1102, Yin Yang CHS, Opp EoN IT Park Phase II, Kharadi, Pune 411014",
   cinOrRegistrationNumber: "U70200PN2025PTC241573",
   gstin: "27ABCCA8318D1ZV",
-  supportEmail: "support@gokesari.com",
+  supportEmail: "support@bkesari.com",
   grievanceOfficer: {
     name: "Sonali",
     designation: "Grievance Officer",
-    email: "grievance@gokesari.com",
+    email: "grievance@bkesari.com",
     phone: "9175193009",
     address: "Flat No B-1102, Yin Yang CHS, Opp EoN IT Park Phase II, Kharadi, Pune 411014",
   },

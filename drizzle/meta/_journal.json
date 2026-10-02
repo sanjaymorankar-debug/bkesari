@@ -1,103 +1,12 @@
 {
   "version": "7",
-  "dialect": "postgresql",
+  "dialect": "mysql",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1787089792395,
-      "tag": "0000_luxuriant_morgan_stark",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1787162416726,
-      "tag": "0001_expand_shop_types",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1787198163836,
-      "tag": "0002_broken_red_wolf",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1787198900000,
-      "tag": "0003_shop_registration_number",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1787217232922,
-      "tag": "0004_organic_strong_guy",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1787217556721,
-      "tag": "0005_glamorous_eternals",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1787225262986,
-      "tag": "0006_bitter_lila_cheney",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1787225564269,
-      "tag": "0007_chemical_goblin_queen",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1787287154095,
-      "tag": "0008_green_turbo",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1787496913365,
-      "tag": "0009_overjoyed_annihilus",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1787570450121,
-      "tag": "0010_magenta_jackpot",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1787580749574,
-      "tag": "0011_windy_chat",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1787586947354,
-      "tag": "0012_curly_bushwacker",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1787641422892,
-      "tag": "0013_overconfident_clint_barton",
+      "version": "5",
+      "when": 1790945717599,
+      "tag": "0000_mysql_baseline",
       "breakpoints": true
     }
   ]

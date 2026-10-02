@@ -41,6 +41,7 @@ import { consumeOnlineStock, loadPurchasableShopProduct } from "./catalogue";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 
+import { insertReturning, updateReturning } from "@/server/db/returning";
 /* ------------------------------------------------------- state machine */
 
 const ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
@@ -215,25 +216,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const taxPaise = 0;
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise;
 
-      const [orderRow] = await tx
-        .insert(orders)
-        .values({
-          orderNumber: generateOrderNumber(),
-          userId: input.userId,
-          shopId: group.shop.id,
-          addressId: input.addressId ?? null,
-          deliveryAddressSnapshot: addressSnapshot,
-          status: "PENDING",
-          source: "DIRECT",
-          subtotalPaise,
-          deliveryFeePaise,
-          taxPaise,
-          totalPaise,
-          deliveryWindow,
-          promisedByAt,
-          notes: input.notes ?? null,
-        })
-        .returning();
+      const [orderRow] = await insertReturning(tx, orders, {
+        orderNumber: generateOrderNumber(),
+        userId: input.userId,
+        shopId: group.shop.id,
+        addressId: input.addressId ?? null,
+        deliveryAddressSnapshot: addressSnapshot,
+        status: "PENDING",
+        source: "DIRECT",
+        subtotalPaise,
+        deliveryFeePaise,
+        taxPaise,
+        totalPaise,
+        deliveryWindow,
+        promisedByAt,
+        notes: input.notes ?? null,
+      });
 
       await tx.insert(orderItems).values(
         lines.map((l) => ({
@@ -271,11 +269,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         tx,
       );
 
-      const [confirmed] = await tx
-        .update(orders)
-        .set({ status: "CONFIRMED", paidAt: new Date(), updatedAt: new Date() })
-        .where(eq(orders.id, orderRow.id))
-        .returning();
+      const [confirmed] = await updateReturning(tx, orders, { status: "CONFIRMED", paidAt: new Date(), updatedAt: new Date() }, eq(orders.id, orderRow.id));
 
       await tx.insert(orderStatusHistory).values({
         orderId: orderRow.id,
@@ -329,15 +323,11 @@ export async function updateOrderStatus(
       );
     }
 
-    const [updated] = await tx
-      .update(orders)
-      .set({
-        status: newStatus,
-        updatedAt: new Date(),
-        ...(newStatus === "CANCELLED" ? { cancellationReason: note ?? null } : {}),
-      })
-      .where(eq(orders.id, orderId))
-      .returning();
+    const [updated] = await updateReturning(tx, orders, {
+      status: newStatus,
+      updatedAt: new Date(),
+      ...(newStatus === "CANCELLED" ? { cancellationReason: note ?? null } : {}),
+    }, eq(orders.id, orderId));
 
     await tx.insert(orderStatusHistory).values({
       orderId,
@@ -388,15 +378,11 @@ export async function cancelOrder(
 
     const wasPaid = PAID_STATUSES.includes(order.status) && order.paidAt != null;
 
-    const [updated] = await tx
-      .update(orders)
-      .set({
-        status: "CANCELLED",
-        cancellationReason: reason,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, orderId))
-      .returning();
+    const [updated] = await updateReturning(tx, orders, {
+      status: "CANCELLED",
+      cancellationReason: reason,
+      updatedAt: new Date(),
+    }, eq(orders.id, orderId));
 
     await tx.insert(orderStatusHistory).values({
       orderId,

@@ -1,9 +1,9 @@
 name: CI
 
 # Runs the full suite on every push and pull request. The integration tests need
-# a real PostgreSQL, so one is provided as a service container — the guarantees
-# they check (row locking, unique constraints, CHECK constraints) cannot be
-# verified against a mock.
+# a real MySQL, so one is provided as a service container — the guarantees they
+# check (row locking, unique constraints, CHECK constraints) cannot be verified
+# against a mock.
 on:
   push:
     branches: [main, staging]
@@ -15,21 +15,23 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres:16
+      mysql:
+        # Matches the MySQL 8 that Hostinger provides; CHECK constraints need
+        # 8.0.16 or newer, which the schema relies on.
+        image: mysql:8.0
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dairy_bakery_test
-        ports: ["5432:5432"]
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: dairy_bakery_test
+        ports: ["3306:3306"]
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -umysql -pmysql || mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
+      TEST_DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
       CRON_SECRET: ci-only-cron-secret
 

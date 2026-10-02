@@ -12,6 +12,7 @@ import { db } from "@/server/db";
 import { addresses, type Address } from "@/server/db/schema";
 import { resolveLocationVerification } from "./geocoding";
 
+import { insertReturning, updateReturning } from "@/server/db/returning";
 export interface SaveAddressInput {
   label?: string | null;
   line1: string;
@@ -55,27 +56,24 @@ export async function createAddress(
     await db.update(addresses).set({ isDefault: false }).where(eq(addresses.userId, userId));
   }
 
-  const [address] = await db
-    .insert(addresses)
-    .values({
-      userId,
-      label: input.label ?? null,
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() || null,
-      area: input.area?.trim() || null,
-      city: input.city.trim(),
-      state: input.state?.trim() || null,
-      pincode: input.pincode.trim(),
-      landmark: input.landmark?.trim() || null,
-      deliveryInstructions: input.deliveryInstructions?.trim() || null,
-      latitude: input.latitude != null ? String(input.latitude) : null,
-      longitude: input.longitude != null ? String(input.longitude) : null,
-      locationVerified,
-      locationVerifiedAt,
-      locationSource,
-      isDefault: input.isDefault ?? false,
-    })
-    .returning();
+  const [address] = await insertReturning(db, addresses, {
+    userId,
+    label: input.label ?? null,
+    line1: input.line1.trim(),
+    line2: input.line2?.trim() || null,
+    area: input.area?.trim() || null,
+    city: input.city.trim(),
+    state: input.state?.trim() || null,
+    pincode: input.pincode.trim(),
+    landmark: input.landmark?.trim() || null,
+    deliveryInstructions: input.deliveryInstructions?.trim() || null,
+    latitude: input.latitude != null ? String(input.latitude) : null,
+    longitude: input.longitude != null ? String(input.longitude) : null,
+    locationVerified,
+    locationVerifiedAt,
+    locationSource,
+    isDefault: input.isDefault ?? false,
+  });
 
   return address;
 }
@@ -107,27 +105,23 @@ export async function updateAddress(
     await db.update(addresses).set({ isDefault: false }).where(eq(addresses.userId, userId));
   }
 
-  const [updated] = await db
-    .update(addresses)
-    .set({
-      label: input.label ?? null,
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() || null,
-      area: input.area?.trim() || null,
-      city: input.city.trim(),
-      state: input.state?.trim() || null,
-      pincode: input.pincode.trim(),
-      landmark: input.landmark?.trim() || null,
-      deliveryInstructions: input.deliveryInstructions?.trim() || null,
-      latitude: input.latitude != null ? String(input.latitude) : existing.latitude,
-      longitude: input.longitude != null ? String(input.longitude) : existing.longitude,
-      locationVerified,
-      locationVerifiedAt,
-      locationSource,
-      isDefault: input.isDefault ?? existing.isDefault,
-    })
-    .where(eq(addresses.id, addressId))
-    .returning();
+  const [updated] = await updateReturning(db, addresses, {
+    label: input.label ?? null,
+    line1: input.line1.trim(),
+    line2: input.line2?.trim() || null,
+    area: input.area?.trim() || null,
+    city: input.city.trim(),
+    state: input.state?.trim() || null,
+    pincode: input.pincode.trim(),
+    landmark: input.landmark?.trim() || null,
+    deliveryInstructions: input.deliveryInstructions?.trim() || null,
+    latitude: input.latitude != null ? String(input.latitude) : existing.latitude,
+    longitude: input.longitude != null ? String(input.longitude) : existing.longitude,
+    locationVerified,
+    locationVerifiedAt,
+    locationSource,
+    isDefault: input.isDefault ?? existing.isDefault,
+  }, eq(addresses.id, addressId));
 
   return updated;
 }

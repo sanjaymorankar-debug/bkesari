@@ -70,9 +70,44 @@ const serverEnvSchema = z.object({
   SUBSCRIPTION_CUTOFF_HOUR: z.coerce.number().int().min(0).max(23).default(20),
 
   APP_TIMEZONE: z.string().default("Asia/Kolkata"),
+
+  /**
+   * Which tier this deployment is. Read from the environment rather than
+   * hard-coded or inferred from NODE_ENV, so dev/test/production can run the
+   * same build against their own database. Deliberately separate from
+   * NODE_ENV, which only says whether this is a production *build*.
+   */
+  APP_ENV: z.enum(["dev", "test", "prod"]).default("dev"),
+
+  /**
+   * Public origin (and path prefix) this deployment is served from, e.g.
+   * `https://dev.bkesari.com/milk`. Used to build absolute links in mail and
+   * payment callbacks, which cannot rely on a request being in scope.
+   */
+  BASE_URL: z.string().url().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
+
+/**
+ * Builds a mysql:// URL from the discrete `DB_*` variables, or returns
+ * undefined when the essential ones are missing so that the schema reports the
+ * absence of DATABASE_URL rather than producing a half-formed URL.
+ */
+function composeDatabaseUrl(
+  raw: Record<string, string | undefined>,
+): string | undefined {
+  const name = raw.DB_NAME;
+  const user = raw.DB_USER;
+  if (!name || !user) return undefined;
+  const host = raw.DB_HOST ?? "localhost";
+  const port = raw.DB_PORT ?? "3306";
+  // The password routinely contains characters that are not URL-safe.
+  const credentials = raw.DB_PASS
+    ? `${encodeURIComponent(user)}:${encodeURIComponent(raw.DB_PASS)}`
+    : encodeURIComponent(user);
+  return `mysql://${credentials}@${host}:${port}/${name}`;
+}
 
 let cached: ServerEnv | null = null;
 
@@ -86,6 +121,20 @@ export function getEnv(): ServerEnv {
   for (const [key, value] of Object.entries(process.env)) {
     raw[key] = value === "" ? undefined : value;
   }
+
+  // Vite (and so Vitest) puts its own BASE_URL="/" into the process
+  // environment, which is a base *path*, not the absolute origin meant here.
+  // Anything that is not an absolute http(s) URL is treated as unset rather
+  // than failing the whole configuration.
+  if (raw.BASE_URL && !/^https?:\/\//i.test(raw.BASE_URL)) {
+    raw.BASE_URL = undefined;
+  }
+
+  // Hostinger's hPanel issues database credentials as separate fields, and the
+  // deployment brief specifies a .env in that shape. The driver wants one URL,
+  // so it is composed here when not supplied directly — both styles of .env
+  // work, and a full DATABASE_URL still wins if both are present.
+  raw.DATABASE_URL ??= composeDatabaseUrl(raw);
 
   const parsed = serverEnvSchema.safeParse(raw);
   if (!parsed.success) {

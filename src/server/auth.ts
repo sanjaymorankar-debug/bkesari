@@ -6,7 +6,7 @@
  * accepted from the client, so a user cannot promote themselves to
  * OPERATOR/ADMIN by tampering with a cookie or request body.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import NextAuth, { type DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
@@ -28,6 +28,7 @@ import {
 } from "@/server/db/schema";
 import { recordConsent } from "@/server/services/consents";
 
+import { insertReturning, updateReturning } from "@/server/db/returning";
 declare module "next-auth" {
   interface Session {
     user: {
@@ -67,7 +68,7 @@ const testCredentialsProvider = Credentials({
     const role: UserRole = bootstrapAdminEmails().includes(email)
       ? "ADMIN"
       : "CUSTOMER";
-    const [created] = await db.insert(users).values({ email, role }).returning();
+    const [created] = await insertReturning(db, users, { email, role });
     await ensureWallet(created.id);
     return { id: created.id, email: created.email, name: created.name };
   },
@@ -140,11 +141,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         record.role !== "ADMIN" &&
         permanentBootstrapAdminEmails().includes(record.email.toLowerCase())
       ) {
-        [record] = await db
-          .update(users)
-          .set({ role: "ADMIN", updatedAt: new Date() })
-          .where(eq(users.id, record.id))
-          .returning();
+        [record] = await updateReturning(db, users, { role: "ADMIN", updatedAt: new Date() }, eq(users.id, record.id));
       }
 
       session.user.id = record.id;
@@ -189,5 +186,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
 /** Idempotent: a user has exactly one wallet, guaranteed by a unique index. */
 async function ensureWallet(userId: string): Promise<void> {
-  await db.insert(wallets).values({ userId }).onConflictDoNothing();
+  await db.insert(wallets).values({ userId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
 }

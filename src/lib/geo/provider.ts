@@ -12,7 +12,7 @@
 declare global {
   interface Window {
     google?: typeof google;
-    __gokesariMapsCallback?: () => void;
+    __bkesariMapsCallback?: () => void;
   }
 }
 
@@ -34,9 +34,9 @@ export function loadGoogleMaps(): Promise<void> {
   if (loadPromise) return loadPromise;
 
   loadPromise = new Promise((resolve, reject) => {
-    window.__gokesariMapsCallback = () => resolve();
+    window.__bkesariMapsCallback = () => resolve();
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_BROWSER_KEY}&libraries=places&callback=__gokesariMapsCallback`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_BROWSER_KEY}&libraries=places&callback=__bkesariMapsCallback`;
     script.async = true;
     script.onerror = () => reject(new Error("Failed to load Google Maps."));
     document.head.appendChild(script);
