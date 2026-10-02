@@ -140,10 +140,12 @@ describe("permission matrix (§4)", () => {
 });
 
 describe("role assignment is admin-only (§5)", () => {
-  it("bootstraps the two permanent admin emails regardless of env config", () => {
-    const emails = bootstrapAdminEmails();
-    expect(emails).toContain("agtcipl@gmail.com");
-    expect(emails).toContain("sanjaymorankar@gmail.com");
+  it("SEC-03 fixed: bootstraps no admin emails by default — no hard-coded fallback", () => {
+    // tests/setup.ts sets neither BOOTSTRAP_ADMIN_EMAILS nor
+    // PERMANENT_ADMIN_EMAILS, so this proves there is no longer a
+    // source-level list granting ADMIN regardless of environment
+    // configuration.
+    expect(bootstrapAdminEmails()).toEqual([]);
   });
 
   it("lets an admin change another user's role and records who/when", async () => {

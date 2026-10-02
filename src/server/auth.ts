@@ -131,11 +131,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       });
       if (!record) return session;
 
-      // Self-healing: the two permanently bootstrapped admin emails are kept
-      // at ADMIN on every session refresh, not just at first sign-in — this
-      // covers accounts that already existed (e.g. created before this list
-      // was configured) rather than relying solely on the one-time
-      // `createUser` bootstrap below.
+      // Self-healing: any email listed in PERMANENT_ADMIN_EMAILS is kept at
+      // ADMIN on every session refresh, not just at first sign-in — this
+      // covers accounts that already existed (e.g. created before the
+      // variable was configured) rather than relying solely on the one-time
+      // `createUser` bootstrap below. The list is empty unless that variable
+      // is set on the host, so this is a no-op until it is.
       if (
         record.role !== "ADMIN" &&
         permanentBootstrapAdminEmails().includes(record.email.toLowerCase())
