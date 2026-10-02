@@ -185,7 +185,7 @@ export function isPanEncryptionConfigured(): boolean {
  */
 const PERMANENT_BOOTSTRAP_ADMIN_EMAILS = [
   "agtcipl@gmail.com",
-  "sanjaymoranar@gmail.com",
+  "sanjaymorankar@gmail.com",
 ] as const;
 
 /** Just the permanent list, lower-cased — used for self-healing role checks. */

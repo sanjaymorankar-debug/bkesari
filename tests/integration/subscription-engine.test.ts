@@ -1,7 +1,7 @@
 /**
  * Daily subscription order engine (requirements §27, §33, §34, §39).
  *
- * Runs against real MySQL. The idempotency and price-snapshot cases are the
+ * Runs against real PostgreSQL. The idempotency and price-snapshot cases are the
  * reason this suite exists — they can only be proven against real constraints.
  */
 import { and, eq } from "drizzle-orm";
@@ -33,13 +33,15 @@ import {
 import { applyWalletMutation } from "@/server/services/wallet";
 import { createStandardMilkSetup, resetDatabase } from "../helpers/fixtures";
 
-// Derived from today rather than hardcoded: the subscription service refuses to
-// modify a delivery in the past, so fixed dates silently rot into failures once
-// they age out. Every subscription built here is DAILY, so no weekday alignment
-// is being relied on.
-const DAY_1 = todayIn(getEnv().APP_TIMEZONE);
+/**
+ * Anchored to today, not fixed calendar dates. `setDailyOverride` and
+ * `skipDate` refuse to touch a delivery in the past, so hardcoded dates make
+ * this suite start failing the day they age out — which is exactly what
+ * happened to the previous 2026-08-20 constants.
+ */
+const DAY_1 = addDays(todayIn(getEnv().APP_TIMEZONE), 1);
 const DAY_2 = addDays(DAY_1, 1);
-const DAY_3 = addDays(DAY_1, 2);
+const DAY_3 = addDays(DAY_2, 1);
 
 /** ₹70/L × 2 L = ₹140 */
 const DAILY_COST = 14_000;
@@ -355,7 +357,7 @@ describe("calendar, preview and forecast (§35–§37)", () => {
       [DAY_1, 2000],
       [DAY_2, 3000],
       [DAY_3, 0],
-      [addDays(DAY_1, 3), 2000],
+      [addDays(DAY_3, 1), 2000],
     ]);
     expect(calendar[1].estimatedCostPaise).toBe(21_000);
     expect(calendar[2].delivers).toBe(false);
