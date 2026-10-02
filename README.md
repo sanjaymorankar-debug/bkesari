@@ -1,3 +1,34 @@
+> ## ⚠️ This repository is superseded — work continues in `GoKesari`
+>
+> Development moved to **[`sanjaymorankar-debug/GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari)**.
+> This repo is kept for history only; **do not open pull requests or deploy from it.**
+>
+> It is not a fork that diverged — it is a strict subset. Checked at the time this
+> notice was added:
+>
+> | | this repo | `GoKesari` |
+> |---|---|---|
+> | Commits | 26 | 84+ and growing |
+> | Files under `src/` | 217 | 492 |
+> | Commits here **not** in `GoKesari` | **0** | — |
+>
+> Re-check the last row at any time with:
+>
+> ```bash
+> comm -23 <(git -C bkesari log --format='%s' | sort -u) \
+>          <(git -C GoKesari log --format='%s' | sort -u)
+> ```
+>
+> Both are the same `dairy-bakery` app ("Asmy Milks", `asmymilk.bkesari.com`) and
+> share the same root commit. Every one of this repo's 26 commits is already in
+> `GoKesari`, including the last one here, "Rebrand Bkesari to GoKesari" — so
+> nothing is lost by leaving it alone, and anything added here would be invisible
+> to the deployed app.
+>
+> Platform-wide deployment lives in
+> [`bkesari-platform`](https://github.com/sanjaymorankar-debug/bkesari-platform)
+> (`DEPLOY.md`).
+
 # Dairy & Bakery Marketplace
 
 A production-oriented marketplace for local dairy and bakery shops: wallet-based
