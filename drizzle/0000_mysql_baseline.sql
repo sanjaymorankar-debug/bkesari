@@ -29,10 +29,10 @@ CREATE TABLE `addresses` (
 	`delivery_instructions` text,
 	`is_default` boolean NOT NULL DEFAULT false,
 	`location_verified` boolean NOT NULL DEFAULT false,
-	`location_verified_at` timestamp(3),
+	`location_verified_at` timestamp(6),
 	`location_source` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `addresses_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -47,7 +47,7 @@ CREATE TABLE `audit_logs` (
 	`new_value` json,
 	`ip_address` text,
 	`user_agent` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `audit_logs_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -56,8 +56,8 @@ CREATE TABLE `cart_items` (
 	`cart_id` varchar(36) NOT NULL,
 	`shop_product_id` varchar(36) NOT NULL,
 	`quantity` int NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `cart_items_id` PRIMARY KEY(`id`),
 	CONSTRAINT `cart_items_cart_product_unique` UNIQUE(`cart_id`,`shop_product_id`),
 	CONSTRAINT `cart_items_quantity_positive` CHECK(`cart_items`.`quantity` > 0)
@@ -66,8 +66,8 @@ CREATE TABLE `cart_items` (
 CREATE TABLE `carts` (
 	`id` varchar(36) NOT NULL,
 	`user_id` varchar(36) NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `carts_id` PRIMARY KEY(`id`),
 	CONSTRAINT `carts_user_unique` UNIQUE(`user_id`)
 );
@@ -79,7 +79,7 @@ CREATE TABLE `delivery_earnings_config` (
 	`is_active` boolean NOT NULL DEFAULT true,
 	`note` text,
 	`created_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `delivery_earnings_config_id` PRIMARY KEY(`id`),
 	CONSTRAINT `delivery_earnings_config_non_negative` CHECK(`delivery_earnings_config`.`base_fee_paise` >= 0 AND `delivery_earnings_config`.`per_km_fee_paise` >= 0)
 );
@@ -90,14 +90,14 @@ CREATE TABLE `delivery_orders` (
 	`delivery_partner_id` varchar(36) NOT NULL,
 	`status` enum('OFFERED','ACCEPTED','REJECTED','PICKED_UP','DELIVERED','CANCELLED') NOT NULL DEFAULT 'OFFERED',
 	`distance_km` text,
-	`offered_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`accepted_at` timestamp(3),
-	`picked_up_at` timestamp(3),
-	`delivered_at` timestamp(3),
-	`cancelled_at` timestamp(3),
+	`offered_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`accepted_at` timestamp(6),
+	`picked_up_at` timestamp(6),
+	`delivered_at` timestamp(6),
+	`cancelled_at` timestamp(6),
 	`cancellation_reason` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `delivery_orders_id` PRIMARY KEY(`id`),
 	CONSTRAINT `delivery_orders_order_id_unique` UNIQUE(`order_id`)
 );
@@ -109,7 +109,7 @@ CREATE TABLE `delivery_partner_earnings` (
 	`base_paise` bigint NOT NULL,
 	`distance_paise` bigint NOT NULL,
 	`total_paise` bigint NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `delivery_partner_earnings_id` PRIMARY KEY(`id`),
 	CONSTRAINT `delivery_partner_earnings_order_unique` UNIQUE(`delivery_order_id`)
 );
@@ -135,20 +135,20 @@ CREATE TABLE `delivery_partners` (
 	`longitude` text,
 	`operating_radius_km` int NOT NULL DEFAULT 5,
 	`location_verified` boolean NOT NULL DEFAULT false,
-	`location_verified_at` timestamp(3),
+	`location_verified_at` timestamp(6),
 	`location_source` text,
 	`status` enum('REGISTERED','UNDER_REVIEW','APPROVED','REJECTED','SUSPENDED','DEACTIVATED') NOT NULL DEFAULT 'REGISTERED',
 	`review_notes` text,
 	`rejection_reason` text,
 	`reviewed_by` varchar(36),
-	`reviewed_at` timestamp(3),
+	`reviewed_at` timestamp(6),
 	`is_online` boolean NOT NULL DEFAULT false,
 	`last_location_latitude` text,
 	`last_location_longitude` text,
-	`last_location_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`last_location_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `delivery_partners_id` PRIMARY KEY(`id`),
 	CONSTRAINT `delivery_partners_user_id_unique` UNIQUE(`user_id`)
 );
@@ -168,7 +168,7 @@ CREATE TABLE `excel_upload_items` (
 	`possible_duplicate_product_id` varchar(36),
 	`status` enum('VALID','NO_CHANGE','INVALID_PRICE','DUPLICATE','NOT_FOUND','MISSING_FIELD','NEW_PRODUCT') NOT NULL,
 	`error_message` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `excel_upload_items_id` PRIMARY KEY(`id`),
 	CONSTRAINT `excel_upload_items_row_unique` UNIQUE(`upload_id`,`row_number`)
 );
@@ -189,8 +189,8 @@ CREATE TABLE `excel_uploads` (
 	`not_found_rows` int NOT NULL DEFAULT 0,
 	`summary` json,
 	`error_message` text,
-	`applied_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`applied_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `excel_uploads_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -212,9 +212,9 @@ CREATE TABLE `grievances` (
 	`status` enum('OPEN','IN_PROGRESS','RESOLVED','CLOSED') NOT NULL DEFAULT 'OPEN',
 	`assigned_to_user_id` varchar(36),
 	`resolution_notes` text,
-	`resolved_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`resolved_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `grievances_id` PRIMARY KEY(`id`),
 	CONSTRAINT `grievances_ticket_number_unique` UNIQUE(`ticket_number`)
 );
@@ -229,7 +229,7 @@ CREATE TABLE `inventory_movements` (
 	`reason` text NOT NULL,
 	`order_id` varchar(36),
 	`created_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `inventory_movements_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -242,7 +242,7 @@ CREATE TABLE `maps_api_call_log` (
 	`success` boolean NOT NULL,
 	`response_time_ms` int,
 	`error_message` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `maps_api_call_log_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -255,10 +255,10 @@ CREATE TABLE `notifications` (
 	`body` text NOT NULL,
 	`action_url` text,
 	`metadata` json,
-	`read_at` timestamp(3),
-	`sent_at` timestamp(3),
+	`read_at` timestamp(6),
+	`sent_at` timestamp(6),
 	`dedupe_key` varchar(191),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `notifications_id` PRIMARY KEY(`id`),
 	CONSTRAINT `notifications_dedupe_unique` UNIQUE(`dedupe_key`)
 );
@@ -272,7 +272,7 @@ CREATE TABLE `order_items` (
 	`unit_price_paise` bigint NOT NULL,
 	`quantity_milli` int NOT NULL,
 	`line_total_paise` bigint NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `order_items_id` PRIMARY KEY(`id`),
 	CONSTRAINT `order_items_quantity_positive` CHECK(`order_items`.`quantity_milli` > 0),
 	CONSTRAINT `order_items_amounts_non_negative` CHECK(`order_items`.`unit_price_paise` >= 0 AND `order_items`.`line_total_paise` >= 0)
@@ -285,7 +285,7 @@ CREATE TABLE `order_status_history` (
 	`new_status` enum('PENDING','CONFIRMED','PREPARING','READY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED','PAYMENT_FAILED','WALLET_INSUFFICIENT','REFUND_PENDING','REFUNDED') NOT NULL,
 	`changed_by` varchar(36),
 	`note` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `order_status_history_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -302,14 +302,14 @@ CREATE TABLE `orders` (
 	`delivery_fee_paise` bigint NOT NULL DEFAULT 0,
 	`tax_paise` bigint NOT NULL DEFAULT 0,
 	`total_paise` bigint NOT NULL,
-	`paid_at` timestamp(3),
+	`paid_at` timestamp(6),
 	`delivery_date` date,
 	`notes` text,
 	`cancellation_reason` text,
 	`delivery_window` enum('EXPRESS_30','STANDARD_60','SCHEDULED'),
-	`promised_by_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`promised_by_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `orders_id` PRIMARY KEY(`id`),
 	CONSTRAINT `orders_number_unique` UNIQUE(`order_number`),
 	CONSTRAINT `orders_totals_non_negative` CHECK(`orders`.`subtotal_paise` >= 0 AND `orders`.`total_paise` >= 0)
@@ -329,9 +329,9 @@ CREATE TABLE `payments` (
 	`failure_reason` text,
 	`raw_payload` json,
 	`voucher_code` text,
-	`verified_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`verified_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `payments_id` PRIMARY KEY(`id`),
 	CONSTRAINT `payments_gateway_order_unique` UNIQUE(`gateway_order_id`),
 	CONSTRAINT `payments_gateway_payment_unique` UNIQUE(`gateway_payment_id`),
@@ -353,8 +353,8 @@ CREATE TABLE `price_update_batches` (
 	`status` enum('PENDING','APPROVED','REJECTED','SUPERSEDED','CANCELLED') NOT NULL DEFAULT 'PENDING',
 	`note` text,
 	`decided_by` varchar(36),
-	`decided_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`decided_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `price_update_batches_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -370,10 +370,10 @@ CREATE TABLE `price_update_requests` (
 	`source` enum('SHOP_OWNER','OPERATOR','ADMIN') NOT NULL,
 	`submitted_by` varchar(36) NOT NULL,
 	`decided_by` varchar(36),
-	`decided_at` timestamp(3),
+	`decided_at` timestamp(6),
 	`rejection_reason` text,
-	`applied_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`applied_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `price_update_requests_id` PRIMARY KEY(`id`),
 	CONSTRAINT `price_update_requests_price_non_negative` CHECK(`price_update_requests`.`proposed_price_paise` >= 0)
 );
@@ -387,8 +387,8 @@ CREATE TABLE `product_categories` (
 	`image_url` text,
 	`sort_order` int NOT NULL DEFAULT 0,
 	`is_active` boolean NOT NULL DEFAULT true,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `product_categories_id` PRIMARY KEY(`id`),
 	CONSTRAINT `product_categories_slug_unique` UNIQUE(`slug`)
 );
@@ -406,7 +406,7 @@ CREATE TABLE `product_price_history` (
 	`new_price_paise` bigint NOT NULL,
 	`changed_by` varchar(36) NOT NULL,
 	`reason` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `product_price_history_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -427,10 +427,10 @@ CREATE TABLE `products` (
 	`approval_status` enum('PENDING_APPROVAL','APPROVED','REJECTED') NOT NULL DEFAULT 'APPROVED',
 	`created_by` varchar(36),
 	`approved_by` varchar(36),
-	`approved_at` timestamp(3),
+	`approved_at` timestamp(6),
 	`rejection_reason` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `products_id` PRIMARY KEY(`id`),
 	CONSTRAINT `products_slug_unique` UNIQUE(`slug`),
 	CONSTRAINT `products_code_unique` UNIQUE(`code`)
@@ -446,8 +446,8 @@ CREATE TABLE `referral_codes` (
 	`expires_at` date,
 	`note` text,
 	`created_by` varchar(36) NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `referral_codes_id` PRIMARY KEY(`id`),
 	CONSTRAINT `referral_codes_code_unique` UNIQUE(`code`)
 );
@@ -458,7 +458,7 @@ CREATE TABLE `referral_redemptions` (
 	`shop_id` varchar(36) NOT NULL,
 	`registration_fee_paise` bigint,
 	`redeemed_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `referral_redemptions_id` PRIMARY KEY(`id`),
 	CONSTRAINT `referral_redemptions_shop_unique` UNIQUE(`shop_id`)
 );
@@ -471,7 +471,7 @@ CREATE TABLE `registration_fee_history` (
 	`effective_from` date NOT NULL,
 	`changed_by` varchar(36) NOT NULL,
 	`reason` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `registration_fee_history_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -483,7 +483,7 @@ CREATE TABLE `registration_fees` (
 	`is_active` boolean NOT NULL DEFAULT true,
 	`note` text,
 	`created_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `registration_fees_id` PRIMARY KEY(`id`),
 	CONSTRAINT `registration_fees_amount_non_negative` CHECK(`registration_fees`.`amount_paise` >= 0)
 );
@@ -504,7 +504,7 @@ CREATE TABLE `roles` (
 CREATE TABLE `sessions` (
 	`session_token` varchar(255) NOT NULL,
 	`user_id` varchar(36) NOT NULL,
-	`expires` timestamp(3) NOT NULL,
+	`expires` timestamp(6) NOT NULL,
 	CONSTRAINT `sessions_session_token` PRIMARY KEY(`session_token`)
 );
 --> statement-breakpoint
@@ -515,7 +515,7 @@ CREATE TABLE `shop_classification_history` (
 	`new_value` enum('KESARI','GREEN') NOT NULL,
 	`changed_by` varchar(36) NOT NULL,
 	`reason` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `shop_classification_history_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -530,12 +530,12 @@ CREATE TABLE `shop_payments` (
 	`method` enum('CASH','UPI','BANK_TRANSFER','CARD','CHEQUE','RAZORPAY','OTHER') NOT NULL DEFAULT 'CASH',
 	`transaction_id` text,
 	`fee_snapshot_paise` bigint,
-	`paid_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`paid_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	`note` text,
 	`receipt_url` text,
 	`reversal_of_id` varchar(36),
 	`recorded_by` varchar(36) NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `shop_payments_id` PRIMARY KEY(`id`),
 	CONSTRAINT `shop_payments_reference_unique` UNIQUE(`reference`),
 	CONSTRAINT `shop_payments_amount_non_zero` CHECK(`shop_payments`.`amount_paise` <> 0)
@@ -556,9 +556,9 @@ CREATE TABLE `shop_products` (
 	`offline_stock` int NOT NULL DEFAULT 0,
 	`is_active` boolean NOT NULL DEFAULT true,
 	`is_available` boolean NOT NULL DEFAULT true,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `shop_products_id` PRIMARY KEY(`id`),
 	CONSTRAINT `shop_products_shop_product_unique` UNIQUE(`shop_id`,`product_id`),
 	CONSTRAINT `shop_products_online_requires_price` CHECK((`shop_products`.`online_sale_enabled` = false) OR (`shop_products`.`online_price_paise` IS NOT NULL)),
@@ -601,7 +601,7 @@ CREATE TABLE `shops` (
 	`preparation_time_minutes` int NOT NULL DEFAULT 15,
 	`description` text,
 	`rejection_reason` text,
-	`approved_at` timestamp(3),
+	`approved_at` timestamp(6),
 	`approved_by` varchar(36),
 	`registration_number` varchar(64) NOT NULL,
 	`registration_date` date,
@@ -616,14 +616,14 @@ CREATE TABLE `shops` (
 	`gst_status` enum('UNKNOWN','NOT_REGISTERED','PENDING_VERIFICATION','REGISTERED','COMPOSITION','VERIFICATION_FAILED') NOT NULL DEFAULT 'UNKNOWN',
 	`gst_trade_name` text,
 	`gst_verification_source` enum('PROVIDER_VERIFIED','SELF_DECLARED','ADMIN_VERIFIED'),
-	`gst_verified_at` timestamp(3),
+	`gst_verified_at` timestamp(6),
 	`gst_verified_by` varchar(36),
 	`pan_status` enum('UNKNOWN','PENDING_VERIFICATION','VERIFIED','VERIFICATION_FAILED') NOT NULL DEFAULT 'UNKNOWN',
 	`pan_number_encrypted` text,
 	`pan_last4` text,
 	`pan_holder_name` text,
 	`pan_verification_source` enum('PROVIDER_VERIFIED','SELF_DECLARED','ADMIN_VERIFIED'),
-	`pan_verified_at` timestamp(3),
+	`pan_verified_at` timestamp(6),
 	`pan_verified_by` varchar(36),
 	`return_policy_text` text,
 	`pickup_latitude` text,
@@ -631,11 +631,11 @@ CREATE TABLE `shops` (
 	`pickup_instructions` text,
 	`landmark` text,
 	`location_verified` boolean NOT NULL DEFAULT false,
-	`location_verified_at` timestamp(3),
+	`location_verified_at` timestamp(6),
 	`location_source` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `shops_id` PRIMARY KEY(`id`),
 	CONSTRAINT `shops_slug_unique` UNIQUE(`slug`),
 	CONSTRAINT `shops_registration_number_unique` UNIQUE(`registration_number`),
@@ -651,8 +651,8 @@ CREATE TABLE `subscription_daily_overrides` (
 	`type` enum('QUANTITY','SKIP') NOT NULL,
 	`quantity_milli` int,
 	`created_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `subscription_daily_overrides_id` PRIMARY KEY(`id`),
 	CONSTRAINT `sub_override_sub_date_unique` UNIQUE(`subscription_id`,`delivery_date`),
 	CONSTRAINT `sub_override_quantity_matches_type` CHECK((`subscription_daily_overrides`.`type` = 'SKIP' AND `subscription_daily_overrides`.`quantity_milli` IS NULL)
@@ -669,7 +669,7 @@ CREATE TABLE `subscription_orders` (
 	`total_paise` bigint NOT NULL,
 	`status` enum('PENDING','CONFIRMED','PREPARING','READY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED','PAYMENT_FAILED','WALLET_INSUFFICIENT','REFUND_PENDING','REFUNDED') NOT NULL DEFAULT 'PENDING',
 	`failure_reason` text,
-	`generated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`generated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `subscription_orders_id` PRIMARY KEY(`id`),
 	CONSTRAINT `subscription_orders_sub_date_unique` UNIQUE(`subscription_id`,`delivery_date`)
 );
@@ -689,10 +689,10 @@ CREATE TABLE `subscriptions` (
 	`status` enum('ACTIVE','PAUSED','CANCELLED','COMPLETED','PAYMENT_PENDING') NOT NULL DEFAULT 'ACTIVE',
 	`pause_from` date,
 	`pause_until` date,
-	`cancelled_at` timestamp(3),
+	`cancelled_at` timestamp(6),
 	`cancellation_reason` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `subscriptions_id` PRIMARY KEY(`id`),
 	CONSTRAINT `subscriptions_quantity_positive` CHECK(`subscriptions`.`quantity_milli` > 0),
 	CONSTRAINT `subscriptions_pause_window_valid` CHECK((`subscriptions`.`pause_from` IS NULL AND `subscriptions`.`pause_until` IS NULL)
@@ -705,7 +705,7 @@ CREATE TABLE `user_consents` (
 	`consent_type` enum('TERMS_AND_PRIVACY','MARKETING_COMMUNICATIONS') NOT NULL,
 	`version` text NOT NULL,
 	`ip_address` text,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `user_consents_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -713,14 +713,14 @@ CREATE TABLE `users` (
 	`id` varchar(36) NOT NULL,
 	`name` text,
 	`email` varchar(255) NOT NULL,
-	`email_verified` timestamp(3),
+	`email_verified` timestamp(6),
 	`image` text,
 	`phone` text,
 	`role` enum('CUSTOMER','SHOP_OWNER','OPERATOR','ADMIN','DELIVERY_PARTNER') NOT NULL DEFAULT 'CUSTOMER',
 	`status` enum('ACTIVE','SUSPENDED','DELETED') NOT NULL DEFAULT 'ACTIVE',
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`deleted_at` timestamp(3),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`deleted_at` timestamp(6),
 	CONSTRAINT `users_id` PRIMARY KEY(`id`),
 	CONSTRAINT `users_email_unique` UNIQUE(`email`)
 );
@@ -728,7 +728,7 @@ CREATE TABLE `users` (
 CREATE TABLE `verification_tokens` (
 	`identifier` varchar(255) NOT NULL,
 	`token` varchar(255) NOT NULL,
-	`expires` timestamp(3) NOT NULL,
+	`expires` timestamp(6) NOT NULL,
 	CONSTRAINT `verification_tokens_identifier_token_pk` PRIMARY KEY(`identifier`,`token`)
 );
 --> statement-breakpoint
@@ -743,7 +743,7 @@ CREATE TABLE `voucher_redemptions` (
 	`bonus_amount_paise` bigint NOT NULL,
 	`status` enum('PENDING','APPLIED','REVERSED','REJECTED') NOT NULL DEFAULT 'PENDING',
 	`idempotency_key` varchar(255) NOT NULL,
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `voucher_redemptions_id` PRIMARY KEY(`id`),
 	CONSTRAINT `voucher_redemptions_idempotency_unique` UNIQUE(`idempotency_key`),
 	CONSTRAINT `voucher_redemptions_amounts_non_negative` CHECK(`voucher_redemptions`.`topup_amount_paise` >= 0 AND `voucher_redemptions`.`bonus_amount_paise` >= 0)
@@ -759,7 +759,7 @@ CREATE TABLE `voucher_upload_items` (
 	`status` enum('VALID','DUPLICATE_IN_FILE','DUPLICATE_EXISTING','INVALID') NOT NULL,
 	`error_message` text,
 	`created_voucher_id` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `voucher_upload_items_id` PRIMARY KEY(`id`),
 	CONSTRAINT `voucher_upload_items_row_unique` UNIQUE(`upload_id`,`row_number`)
 );
@@ -773,8 +773,8 @@ CREATE TABLE `voucher_uploads` (
 	`successful_records` int NOT NULL DEFAULT 0,
 	`failed_records` int NOT NULL DEFAULT 0,
 	`summary` json,
-	`applied_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`applied_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `voucher_uploads_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
@@ -798,8 +798,8 @@ CREATE TABLE `vouchers` (
 	`status` enum('DRAFT','ACTIVE','PAUSED','EXPIRED','BUDGET_EXHAUSTED') NOT NULL DEFAULT 'DRAFT',
 	`applicable_scope` text,
 	`created_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `vouchers_id` PRIMARY KEY(`id`),
 	CONSTRAINT `vouchers_code_unique` UNIQUE(`code`),
 	CONSTRAINT `vouchers_bonus_percent_range` CHECK(`vouchers`.`bonus_percent` > 0 AND `vouchers`.`bonus_percent` <= 100),
@@ -829,7 +829,7 @@ CREATE TABLE `wallet_transactions` (
 	`idempotency_key` varchar(255) NOT NULL,
 	`description` text NOT NULL,
 	`created_by` varchar(36),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `wallet_transactions_id` PRIMARY KEY(`id`),
 	CONSTRAINT `wallet_txn_idempotency_unique` UNIQUE(`idempotency_key`),
 	CONSTRAINT `wallet_txn_amount_non_zero` CHECK(`wallet_transactions`.`amount_paise` <> 0),
@@ -850,9 +850,9 @@ CREATE TABLE `wallets` (
 	`auto_recharge_trigger_paise` bigint,
 	`auto_recharge_amount_paise` bigint,
 	`status` text NOT NULL DEFAULT ('ACTIVE'),
-	`low_balance_notified_at` timestamp(3),
-	`created_at` timestamp(3) NOT NULL DEFAULT (now()),
-	`updated_at` timestamp(3) NOT NULL DEFAULT (now()),
+	`low_balance_notified_at` timestamp(6),
+	`created_at` timestamp(6) NOT NULL DEFAULT (now(6)),
+	`updated_at` timestamp(6) NOT NULL DEFAULT (now(6)),
 	CONSTRAINT `wallets_id` PRIMARY KEY(`id`),
 	CONSTRAINT `wallets_user_unique` UNIQUE(`user_id`),
 	CONSTRAINT `wallets_balance_non_negative` CHECK(`wallets`.`balance_paise` >= 0),

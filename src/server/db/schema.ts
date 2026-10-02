@@ -401,19 +401,19 @@ export const users = mysqlTable(
     id: uuidCol("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
     name: text("name"),
     email: varchar("email", { length: 255 }).notNull(),
-    emailVerified: timestamp("email_verified", { fsp: 3 }),
+    emailVerified: timestamp("email_verified", { fsp: 6 }),
     image: text("image"),
     phone: text("phone"),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [uniqueIndex("users_email_unique").on(t.email)],
 );
@@ -448,7 +448,7 @@ export const sessions = mysqlTable(
     userId: uuidCol("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    expires: timestamp("expires", { fsp: 3 }).notNull(),
+    expires: timestamp("expires", { fsp: 6 }).notNull(),
   },
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
@@ -458,7 +458,7 @@ export const verificationTokens = mysqlTable(
   {
     identifier: varchar("identifier", { length: 255 }).notNull(),
     token: varchar("token", { length: 255 }).notNull(),
-    expires: timestamp("expires", { fsp: 3 }).notNull(),
+    expires: timestamp("expires", { fsp: 6 }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.identifier, t.token] })],
 );
@@ -517,14 +517,14 @@ export const addresses = mysqlTable(
     isDefault: boolean("is_default").notNull().default(false),
     /** Same provenance/verification pattern as shops — see schema.ts's shops table comment. */
     locationVerified: boolean("location_verified").notNull().default(false),
-    locationVerifiedAt: timestamp("location_verified_at", { fsp: 3 }),
+    locationVerifiedAt: timestamp("location_verified_at", { fsp: 6 }),
     locationSource: text("location_source", {
       enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
     }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [
     index("addresses_user_idx").on(t.userId),
@@ -583,7 +583,7 @@ export const shops = mysqlTable(
       .default(15),
     description: text("description"),
     rejectionReason: text("rejection_reason"),
-    approvedAt: timestamp("approved_at", { fsp: 3 }),
+    approvedAt: timestamp("approved_at", { fsp: 6 }),
     approvedBy: uuidCol("approved_by").references(() => users.id),
 
     /* --------------------------------------------- registration & fee (§4.1) */
@@ -638,7 +638,7 @@ export const shops = mysqlTable(
     gstStatus: gstStatusEnum("gst_status").notNull().default("UNKNOWN"),
     gstTradeName: text("gst_trade_name"),
     gstVerificationSource: identityVerificationSourceEnum("gst_verification_source"),
-    gstVerifiedAt: timestamp("gst_verified_at", { fsp: 3 }),
+    gstVerifiedAt: timestamp("gst_verified_at", { fsp: 6 }),
     gstVerifiedBy: uuidCol("gst_verified_by").references(() => users.id),
 
     panStatus: panStatusEnum("pan_status").notNull().default("UNKNOWN"),
@@ -648,7 +648,7 @@ export const shops = mysqlTable(
     panLast4: text("pan_last4"),
     panHolderName: text("pan_holder_name"),
     panVerificationSource: identityVerificationSourceEnum("pan_verification_source"),
-    panVerifiedAt: timestamp("pan_verified_at", { fsp: 3 }),
+    panVerifiedAt: timestamp("pan_verified_at", { fsp: 6 }),
     panVerifiedBy: uuidCol("pan_verified_by").references(() => users.id),
     /**
      * Shop-specific return/refund terms shown to buyers before purchase. Null
@@ -668,19 +668,19 @@ export const shops = mysqlTable(
     pickupInstructions: text("pickup_instructions"),
     landmark: text("landmark"),
     locationVerified: boolean("location_verified").notNull().default(false),
-    locationVerifiedAt: timestamp("location_verified_at", { fsp: 3 }),
+    locationVerifiedAt: timestamp("location_verified_at", { fsp: 6 }),
     /** How `latitude`/`longitude` were obtained — provenance for the compliance/audit trail. */
     locationSource: text("location_source", {
       enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
     }),
 
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [
     uniqueIndex("shops_slug_unique").on(t.slug),
@@ -717,9 +717,9 @@ export const shopClassificationHistory = mysqlTable(
       .notNull()
       .references(() => users.id),
     reason: text("reason"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [index("shop_class_hist_shop_idx").on(t.shopId)],
 );
@@ -780,7 +780,7 @@ export const deliveryPartners = mysqlTable(
     longitude: text("longitude"),
     operatingRadiusKm: int("operating_radius_km").notNull().default(5),
     locationVerified: boolean("location_verified").notNull().default(false),
-    locationVerifiedAt: timestamp("location_verified_at", { fsp: 3 }),
+    locationVerifiedAt: timestamp("location_verified_at", { fsp: 6 }),
     locationSource: text("location_source", {
       enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
     }),
@@ -790,7 +790,7 @@ export const deliveryPartners = mysqlTable(
     reviewNotes: text("review_notes"),
     rejectionReason: text("rejection_reason"),
     reviewedBy: uuidCol("reviewed_by").references(() => users.id),
-    reviewedAt: timestamp("reviewed_at", { fsp: 3 }),
+    reviewedAt: timestamp("reviewed_at", { fsp: 6 }),
 
     /* --------------------------------------------------- online status (Slice
      * C). Written only while online, from the browser's native geolocation —
@@ -799,15 +799,15 @@ export const deliveryPartners = mysqlTable(
     isOnline: boolean("is_online").notNull().default(false),
     lastLocationLatitude: text("last_location_latitude"),
     lastLocationLongitude: text("last_location_longitude"),
-    lastLocationAt: timestamp("last_location_at", { fsp: 3 }),
+    lastLocationAt: timestamp("last_location_at", { fsp: 6 }),
 
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [
     // One delivery-partner profile per user account.
@@ -829,10 +829,10 @@ export const productCategories = mysqlTable(
     imageUrl: text("image_url"),
     sortOrder: int("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [
     uniqueIndex("product_categories_slug_unique").on(t.slug),
@@ -888,12 +888,12 @@ export const products = mysqlTable(
     /** Who created this product row. Null for seeded/reference catalogue rows. */
     createdBy: uuidCol("created_by").references(() => users.id),
     approvedBy: uuidCol("approved_by").references(() => users.id),
-    approvedAt: timestamp("approved_at", { fsp: 3 }),
+    approvedAt: timestamp("approved_at", { fsp: 6 }),
     rejectionReason: text("rejection_reason"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [
     uniqueIndex("products_slug_unique").on(t.slug),
@@ -933,13 +933,13 @@ export const shopProducts = mysqlTable(
     isActive: boolean("is_active").notNull().default(true),
     /** Temporary availability toggle (e.g. sold out today) distinct from isActive. */
     isAvailable: boolean("is_available").notNull().default(true),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    deletedAt: timestamp("deleted_at", { fsp: 6 }),
   },
   (t) => [
     uniqueIndex("shop_products_shop_product_unique").on(t.shopId, t.productId),
@@ -981,9 +981,9 @@ export const productPriceHistory = mysqlTable(
       .notNull()
       .references(() => users.id),
     reason: text("reason"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [index("price_history_shop_product_idx").on(t.shopProductId)],
 );
@@ -1004,9 +1004,9 @@ export const inventoryMovements = mysqlTable(
     reason: text("reason").notNull(),
     orderId: uuidCol("order_id"),
     createdBy: uuidCol("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [index("inventory_movements_sp_idx").on(t.shopProductId)],
 );
@@ -1020,12 +1020,12 @@ export const carts = mysqlTable(
     userId: uuidCol("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [uniqueIndex("carts_user_unique").on(t.userId)],
 );
@@ -1042,12 +1042,12 @@ export const cartItems = mysqlTable(
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     /** Number of sellable units (not milli-units) — carts sell whole units. */
     quantity: int("quantity").notNull(),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("cart_items_cart_product_unique").on(t.cartId, t.shopProductId),
@@ -1091,7 +1091,7 @@ export const orders = mysqlTable(
     taxPaise: bigint("tax_paise", { mode: "number" }).notNull().default(0),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set once the wallet deduction has actually completed. */
-    paidAt: timestamp("paid_at", { fsp: 3 }),
+    paidAt: timestamp("paid_at", { fsp: 6 }),
     deliveryDate: date("delivery_date", { mode: "string" }),
     notes: text("notes"),
     cancellationReason: text("cancellation_reason"),
@@ -1100,13 +1100,13 @@ export const orders = mysqlTable(
     deliveryWindow: deliveryWindowEnum("delivery_window"),
     /** The deadline promised for `deliveryWindow`. Never set unless the
      * system determined it was actually achievable at checkout time. */
-    promisedByAt: timestamp("promised_by_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    promisedByAt: timestamp("promised_by_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("orders_number_unique").on(t.orderNumber),
@@ -1141,9 +1141,9 @@ export const orderItems = mysqlTable(
     /** Milli-units, so 2.5 L is exactly 2500. */
     quantityMilli: int("quantity_milli").notNull(),
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("order_items_order_idx").on(t.orderId),
@@ -1166,9 +1166,9 @@ export const orderStatusHistory = mysqlTable(
     newStatus: orderStatusEnum("new_status").notNull(),
     changedBy: uuidCol("changed_by").references(() => users.id),
     note: text("note"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [index("order_status_history_order_idx").on(t.orderId)],
 );
@@ -1200,20 +1200,20 @@ export const deliveryOrders = mysqlTable(
     status: deliveryOrderStatusEnum("status").notNull().default("OFFERED"),
     /** Haversine straight-line distance, shop → customer, at assignment time — not a road-distance API call (see haversine.ts). */
     distanceKm: text("distance_km"),
-    offeredAt: timestamp("offered_at", { fsp: 3 })
+    offeredAt: timestamp("offered_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    acceptedAt: timestamp("accepted_at", { fsp: 3 }),
-    pickedUpAt: timestamp("picked_up_at", { fsp: 3 }),
-    deliveredAt: timestamp("delivered_at", { fsp: 3 }),
-    cancelledAt: timestamp("cancelled_at", { fsp: 3 }),
+      .default(sql`(now(6))`),
+    acceptedAt: timestamp("accepted_at", { fsp: 6 }),
+    pickedUpAt: timestamp("picked_up_at", { fsp: 6 }),
+    deliveredAt: timestamp("delivered_at", { fsp: 6 }),
+    cancelledAt: timestamp("cancelled_at", { fsp: 6 }),
     cancellationReason: text("cancellation_reason"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     // One active delivery assignment per order, pre-batching.
@@ -1238,9 +1238,9 @@ export const deliveryEarningsConfig = mysqlTable(
     isActive: boolean("is_active").notNull().default(true),
     note: text("note"),
     createdBy: uuidCol("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     check("delivery_earnings_config_non_negative", sql`${t.baseFeePaise} >= 0 AND ${t.perKmFeePaise} >= 0`),
@@ -1257,9 +1257,9 @@ export const deliveryPartnerEarnings = mysqlTable(
     basePaise: bigint("base_paise", { mode: "number" }).notNull(),
     distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     // Named explicitly: the identifier drizzle derives from the table and
@@ -1310,13 +1310,13 @@ export const payments = mysqlTable(
      * already fixed. Null when no voucher was applied.
      */
     voucherCode: text("voucher_code"),
-    verifiedAt: timestamp("verified_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    verifiedAt: timestamp("verified_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("payments_gateway_order_unique").on(t.gatewayOrderId),
@@ -1370,13 +1370,13 @@ export const wallets = mysqlTable(
     status: text("status", { enum: ["ACTIVE", "FROZEN"] })
       .notNull()
       .default("ACTIVE"),
-    lowBalanceNotifiedAt: timestamp("low_balance_notified_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    lowBalanceNotifiedAt: timestamp("low_balance_notified_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("wallets_user_unique").on(t.userId),
@@ -1441,9 +1441,9 @@ export const walletTransactions = mysqlTable(
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     description: text("description").notNull(),
     createdBy: uuidCol("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("wallet_txn_idempotency_unique").on(t.idempotencyKey),
@@ -1515,12 +1515,12 @@ export const vouchers = mysqlTable(
      *  eligible top-up per the brief's explicit "for the first implementation" scope. */
     applicableScope: text("applicable_scope"),
     createdBy: uuidCol("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("vouchers_code_unique").on(t.code),
@@ -1581,9 +1581,9 @@ export const voucherRedemptions = mysqlTable(
      * verify call for the same payment can never double-apply the bonus.
      */
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("voucher_redemptions_idempotency_unique").on(t.idempotencyKey),
@@ -1607,10 +1607,10 @@ export const voucherUploads = mysqlTable(
     successfulRecords: int("successful_records").notNull().default(0),
     failedRecords: int("failed_records").notNull().default(0),
     summary: json("summary").$type<Record<string, unknown>>(),
-    appliedAt: timestamp("applied_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    appliedAt: timestamp("applied_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [index("voucher_uploads_uploader_idx").on(t.uploadedBy)],
 );
@@ -1631,9 +1631,9 @@ export const voucherUploadItems = mysqlTable(
     createdVoucherId: uuidCol("created_voucher_id").references(() => vouchers.id, {
       onDelete: "set null",
     }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("voucher_upload_items_row_unique").on(t.uploadId, t.rowNumber),
@@ -1668,14 +1668,14 @@ export const subscriptions = mysqlTable(
     status: subscriptionStatusEnum("status").notNull().default("ACTIVE"),
     pauseFrom: date("pause_from", { mode: "string" }),
     pauseUntil: date("pause_until", { mode: "string" }),
-    cancelledAt: timestamp("cancelled_at", { fsp: 3 }),
+    cancelledAt: timestamp("cancelled_at", { fsp: 6 }),
     cancellationReason: text("cancellation_reason"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("subscriptions_user_idx").on(t.userId),
@@ -1707,12 +1707,12 @@ export const subscriptionDailyOverrides = mysqlTable(
     /** NULL when type = SKIP. */
     quantityMilli: int("quantity_milli"),
     createdBy: uuidCol("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("sub_override_sub_date_unique").on(
@@ -1745,9 +1745,9 @@ export const subscriptionOrders = mysqlTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     failureReason: text("failure_reason"),
-    generatedAt: timestamp("generated_at", { fsp: 3 })
+    generatedAt: timestamp("generated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     // Running the daily job twice cannot create a second delivery for a date.
@@ -1776,13 +1776,13 @@ export const notifications = mysqlTable(
     /** Deep link into the app, e.g. /wallet or /subscriptions/:id. */
     actionUrl: text("action_url"),
     metadata: json("metadata").$type<Record<string, unknown>>(),
-    readAt: timestamp("read_at", { fsp: 3 }),
-    sentAt: timestamp("sent_at", { fsp: 3 }),
+    readAt: timestamp("read_at", { fsp: 6 }),
+    sentAt: timestamp("sent_at", { fsp: 6 }),
     /** Set for notifications that must not repeat (e.g. one low-balance alert). */
     dedupeKey: varchar("dedupe_key", { length: 191 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("notifications_user_idx").on(t.userId),
@@ -1809,9 +1809,9 @@ export const registrationFees = mysqlTable(
     isActive: boolean("is_active").notNull().default(true),
     note: text("note"),
     createdBy: uuidCol("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("registration_fees_effective_idx").on(t.effectiveFrom),
@@ -1832,9 +1832,9 @@ export const registrationFeeHistory = mysqlTable(
       .notNull()
       .references(() => users.id),
     reason: text("reason"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     // Named explicitly: the identifier drizzle derives from the table and
@@ -1867,12 +1867,12 @@ export const referralCodes = mysqlTable(
     createdBy: uuidCol("created_by")
       .notNull()
       .references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("referral_codes_code_unique").on(t.code),
@@ -1893,9 +1893,9 @@ export const referralRedemptions = mysqlTable(
       .references(() => shops.id, { onDelete: "cascade" }),
     registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
     redeemedBy: uuidCol("redeemed_by").references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     // A shop is attributed to at most one referral code.
@@ -1932,9 +1932,9 @@ export const shopPayments = mysqlTable(
     transactionId: text("transaction_id"),
     /** The fee this payment was settling — snapshot for reconciliation. */
     feeSnapshotPaise: bigint("fee_snapshot_paise", { mode: "number" }),
-    paidAt: timestamp("paid_at", { fsp: 3 })
+    paidAt: timestamp("paid_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
     note: text("note"),
     receiptUrl: text("receipt_url"),
     /** Set on a REVERSAL/REFUND row to point at the payment being corrected. */
@@ -1942,9 +1942,9 @@ export const shopPayments = mysqlTable(
     recordedBy: uuidCol("recorded_by")
       .notNull()
       .references(() => users.id),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("shop_payments_reference_unique").on(t.reference),
@@ -1984,10 +1984,10 @@ export const excelUploads = mysqlTable(
     /** Counts and headline diffs, rendered on the preview screen. */
     summary: json("summary").$type<Record<string, unknown>>(),
     errorMessage: text("error_message"),
-    appliedAt: timestamp("applied_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    appliedAt: timestamp("applied_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("excel_uploads_shop_idx").on(t.shopId),
@@ -2035,9 +2035,9 @@ export const excelUploadItems = mysqlTable(
     ),
     status: excelRowStatusEnum("status").notNull(),
     errorMessage: text("error_message"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("excel_upload_items_row_unique").on(t.uploadId, t.rowNumber),
@@ -2068,10 +2068,10 @@ export const priceUpdateBatches = mysqlTable(
     status: priceRequestStatusEnum("status").notNull().default("PENDING"),
     note: text("note"),
     decidedBy: uuidCol("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    decidedAt: timestamp("decided_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("price_update_batches_shop_idx").on(t.shopId),
@@ -2107,12 +2107,12 @@ export const priceUpdateRequests = mysqlTable(
       .notNull()
       .references(() => users.id),
     decidedBy: uuidCol("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { fsp: 3 }),
+    decidedAt: timestamp("decided_at", { fsp: 6 }),
     rejectionReason: text("rejection_reason"),
-    appliedAt: timestamp("applied_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    appliedAt: timestamp("applied_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("price_update_requests_batch_idx").on(t.batchId),
@@ -2154,13 +2154,13 @@ export const grievances = mysqlTable(
       onDelete: "set null",
     }),
     resolutionNotes: text("resolution_notes"),
-    resolvedAt: timestamp("resolved_at", { fsp: 3 }),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    resolvedAt: timestamp("resolved_at", { fsp: 6 }),
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { fsp: 3 })
+      .default(sql`(now(6))`),
+    updatedAt: timestamp("updated_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     uniqueIndex("grievances_ticket_number_unique").on(t.ticketNumber),
@@ -2182,9 +2182,9 @@ export const userConsents = mysqlTable(
     /** The policy version consented to, e.g. "2026-08-21" — matches the policy page's "Last updated" date. */
     version: text("version").notNull(),
     ipAddress: text("ip_address"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("user_consents_user_idx").on(t.userId),
@@ -2207,9 +2207,9 @@ export const auditLogs = mysqlTable(
     newValue: json("new_value"),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("audit_logs_actor_idx").on(t.actorId),
@@ -2236,9 +2236,9 @@ export const mapsApiCallLog = mysqlTable(
     success: boolean("success").notNull(),
     responseTimeMs: int("response_time_ms"),
     errorMessage: text("error_message"),
-    createdAt: timestamp("created_at", { fsp: 3 })
+    createdAt: timestamp("created_at", { fsp: 6 })
       .notNull()
-      .defaultNow(),
+      .default(sql`(now(6))`),
   },
   (t) => [
     index("maps_api_call_log_service_idx").on(t.service),

@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "e06284c8-a41a-4d97-a496-6aeb69758a8a",
+  "id": "53a87d28-26d7-4f8c-82fa-d508b8fbfd37",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "accounts": {
@@ -233,7 +233,7 @@
         },
         "location_verified_at": {
           "name": "location_verified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -247,15 +247,15 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -378,11 +378,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -468,19 +468,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -563,19 +563,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -661,11 +661,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {},
@@ -741,36 +741,36 @@
         },
         "offered_at": {
           "name": "offered_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "accepted_at": {
           "name": "accepted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "picked_up_at": {
           "name": "picked_up_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "delivered_at": {
           "name": "delivered_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "cancelled_at": {
           "name": "cancelled_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -784,19 +784,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -908,11 +908,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -1117,7 +1117,7 @@
         },
         "location_verified_at": {
           "name": "location_verified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1160,7 +1160,7 @@
         },
         "reviewed_at": {
           "name": "reviewed_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1189,30 +1189,30 @@
         },
         "last_location_at": {
           "name": "last_location_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1376,11 +1376,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -1584,18 +1584,18 @@
         },
         "applied_at": {
           "name": "applied_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -1775,26 +1775,26 @@
         },
         "resolved_at": {
           "name": "resolved_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -1934,11 +1934,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2050,11 +2050,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2155,14 +2155,14 @@
         },
         "read_at": {
           "name": "read_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "sent_at": {
           "name": "sent_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2176,11 +2176,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2294,11 +2294,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2405,11 +2405,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2553,7 +2553,7 @@
         },
         "paid_at": {
           "name": "paid_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2588,26 +2588,26 @@
         },
         "promised_by_at": {
           "name": "promised_by_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2804,26 +2804,26 @@
         },
         "verified_at": {
           "name": "verified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -2973,18 +2973,18 @@
         },
         "decided_at": {
           "name": "decided_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -3151,7 +3151,7 @@
         },
         "decided_at": {
           "name": "decided_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -3165,18 +3165,18 @@
         },
         "applied_at": {
           "name": "applied_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -3355,15 +3355,15 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -3475,11 +3475,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -3651,7 +3651,7 @@
         },
         "approved_at": {
           "name": "approved_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -3665,15 +3665,15 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -3830,19 +3830,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -3940,11 +3940,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -4069,11 +4069,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -4180,11 +4180,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -4343,7 +4343,7 @@
         },
         "expires": {
           "name": "expires",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -4431,11 +4431,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -4563,11 +4563,11 @@
         },
         "paid_at": {
           "name": "paid_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "note": {
           "name": "note",
@@ -4599,11 +4599,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -4803,23 +4803,23 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5129,7 +5129,7 @@
         },
         "approved_at": {
           "name": "approved_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5237,7 +5237,7 @@
         },
         "gst_verified_at": {
           "name": "gst_verified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5287,7 +5287,7 @@
         },
         "pan_verified_at": {
           "name": "pan_verified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5344,7 +5344,7 @@
         },
         "location_verified_at": {
           "name": "location_verified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5358,23 +5358,23 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5559,19 +5559,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -5697,11 +5697,11 @@
         },
         "generated_at": {
           "name": "generated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -5873,7 +5873,7 @@
         },
         "cancelled_at": {
           "name": "cancelled_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5887,19 +5887,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -6046,11 +6046,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -6121,7 +6121,7 @@
         },
         "email_verified": {
           "name": "email_verified",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -6158,23 +6158,23 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -6220,7 +6220,7 @@
         },
         "expires": {
           "name": "expires",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -6316,11 +6316,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -6484,11 +6484,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -6612,18 +6612,18 @@
         },
         "applied_at": {
           "name": "applied_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -6805,19 +6805,19 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -7025,11 +7025,11 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
@@ -7238,26 +7238,26 @@
         },
         "low_balance_notified_at": {
           "name": "low_balance_notified_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp(3)",
+          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "(now(6))"
         }
       },
       "indexes": {
