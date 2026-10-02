@@ -1,33 +1,35 @@
-> ## ⚠️ This repository is superseded — work continues in `GoKesari`
+> ## ⚠️ This repo and `GoKesari` are the same app, diverging
 >
-> Development moved to **[`sanjaymorankar-debug/GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari)**.
-> This repo is kept for history only; **do not open pull requests or deploy from it.**
+> There are two repositories for this application and **work in one is invisible
+> to the other**. Verified against both `main` branches:
 >
-> It is not a fork that diverged — it is a strict subset. Checked at the time this
-> notice was added:
->
-> | | this repo | `GoKesari` |
+> | | this repo (`bkesari`) | [`GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari) |
 > |---|---|---|
-> | Commits | 26 | 84+ and growing |
+> | Commits | 30 | 84 |
 > | Files under `src/` | 217 | 492 |
-> | Commits here **not** in `GoKesari` | **0** | — |
+> | Commits not in the other | **4** | 58 |
+> | Branding in `src/` | `Bkesari` ×8, `bkesari.com` ×2 | `GoKesari` ×89, `gokesari.com` ×4 |
+> | `CNAME` | `test.bkesari.com` | `test.bkesari.com` |
 >
-> Re-check the last row at any time with:
+> They share a root commit, and until 2026-10-02 this repo was a strict subset of
+> `GoKesari` — every commit here was already there, including *"Rebrand Bkesari to
+> GoKesari"*. That is no longer true: PR #8 **restored Bkesari branding** here, so
+> the two now differ deliberately on brand, and this repo carries 4 commits of its
+> own.
+>
+> `GoKesari` remains far ahead on features — 275 more files under `src/`.
+>
+> **Both `CNAME` files say `test.bkesari.com`**, so they also disagree about which
+> one owns that hostname. Which repo is canonical, and whether `Bkesari` and
+> `GoKesari` are meant to be two brands of one codebase or one product that got
+> renamed, is a decision for the owner — this note only records the measurements.
+>
+> Re-check the divergence at any time with:
 >
 > ```bash
-> comm -23 <(git -C bkesari log --format='%s' | sort -u) \
->          <(git -C GoKesari log --format='%s' | sort -u)
+> comm -23 <(git -C bkesari  log --format='%s' origin/main | sort -u) \
+>          <(git -C GoKesari log --all --format='%s'        | sort -u)
 > ```
->
-> Both are the same `dairy-bakery` app ("Asmy Milks", `asmymilk.bkesari.com`) and
-> share the same root commit. Every one of this repo's 26 commits is already in
-> `GoKesari`, including the last one here, "Rebrand Bkesari to GoKesari" — so
-> nothing is lost by leaving it alone, and anything added here would be invisible
-> to the deployed app.
->
-> Platform-wide deployment lives in
-> [`bkesari-platform`](https://github.com/sanjaymorankar-debug/bkesari-platform)
-> (`DEPLOY.md`).
 
 # Dairy & Bakery Marketplace
 
