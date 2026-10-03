@@ -19,16 +19,41 @@
  * Postgres version had is kept — the ids are only used to read rows back.
  */
 import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { MySqlTransaction } from "drizzle-orm/mysql-core";
 import type {
   AnyMySqlColumn,
   MySqlTable,
   MySqlUpdateSetSource,
 } from "drizzle-orm/mysql-core";
 
-import type { DbClient } from "./index";
+import type { Database, DbClient } from "./index";
 
 /** A table this module can read rows back from — it needs a single-column id. */
 type Identifiable = MySqlTable & { id: AnyMySqlColumn };
+
+/**
+ * Runs `work` inside a transaction, reusing the caller's if it has one.
+ *
+ * Every helper below replaces one atomic `RETURNING` statement with a sequence
+ * of statements, which is only equivalent while nothing else can write in
+ * between. On the pool handle each statement autocommits, so a concurrent writer
+ * could invalidate the predicate after the ids were read and the helper would
+ * still report rows back — rows it had not in fact written.
+ *
+ * Atomicity therefore cannot be the caller's responsibility: most call sites
+ * pass the pool handle, and a correctness rule that has to be remembered at 90
+ * call sites is a rule that will be missed at one. A caller that already holds a
+ * transaction must have it reused rather than nested, since a nested
+ * `transaction()` becomes a SAVEPOINT whose rollback semantics differ from what
+ * that caller expects.
+ */
+async function atomically<T>(
+  exec: DbClient,
+  work: (tx: DbClient) => Promise<T>,
+): Promise<T> {
+  if (exec instanceof MySqlTransaction) return work(exec);
+  return (exec as Database).transaction((tx) => work(tx as DbClient));
+}
 
 /** mysql2 reports the row count on the result header of a write. */
 function affectedRows(result: unknown): number {
@@ -56,12 +81,13 @@ export async function insertReturning<T extends Identifiable>(
   }) as T["$inferInsert"][];
   if (rows.length === 0) return [];
 
-  await exec.insert(table).values(rows);
-
   const ids = rows.map((row) => (row as { id: string }).id);
-  return exec.select().from(table).where(inArray(table.id, ids)) as Promise<
-    T["$inferSelect"][]
-  >;
+  return atomically(exec, async (tx) => {
+    await tx.insert(table).values(rows);
+    return tx.select().from(table).where(inArray(table.id, ids)) as Promise<
+      T["$inferSelect"][]
+    >;
+  });
 }
 
 /**
@@ -76,21 +102,26 @@ export async function updateReturning<T extends Identifiable>(
   values: MySqlUpdateSetSource<T>,
   where: SQL | undefined,
 ): Promise<T["$inferSelect"][]> {
-  const matched = (await exec
-    .select({ id: table.id })
-    .from(table)
-    .where(where)) as { id: string }[];
-  if (matched.length === 0) return [];
-  const ids = matched.map((row) => row.id);
+  return atomically(exec, async (tx) => {
+    // `for("update")` locks the matched rows for the rest of the transaction, so
+    // the predicate cannot stop holding between here and the update below.
+    const matched = (await tx
+      .select({ id: table.id })
+      .from(table)
+      .where(where)
+      .for("update")) as { id: string }[];
+    if (matched.length === 0) return [];
+    const ids = matched.map((row) => row.id);
 
-  await exec
-    .update(table)
-    .set(values)
-    .where(and(where, inArray(table.id, ids)));
+    await tx
+      .update(table)
+      .set(values)
+      .where(and(where, inArray(table.id, ids)));
 
-  return exec.select().from(table).where(inArray(table.id, ids)) as Promise<
-    T["$inferSelect"][]
-  >;
+    return tx.select().from(table).where(inArray(table.id, ids)) as Promise<
+      T["$inferSelect"][]
+    >;
+  });
 }
 
 /**
@@ -107,22 +138,25 @@ export async function updateReturningIfChanged<T extends Identifiable>(
   values: MySqlUpdateSetSource<T>,
   where: SQL | undefined,
 ): Promise<T["$inferSelect"][]> {
-  const matched = (await exec
-    .select({ id: table.id })
-    .from(table)
-    .where(where)) as { id: string }[];
-  if (matched.length === 0) return [];
-  const ids = matched.map((row) => row.id);
+  return atomically(exec, async (tx) => {
+    const matched = (await tx
+      .select({ id: table.id })
+      .from(table)
+      .where(where)
+      .for("update")) as { id: string }[];
+    if (matched.length === 0) return [];
+    const ids = matched.map((row) => row.id);
 
-  const result = await exec
-    .update(table)
-    .set(values)
-    .where(and(where, inArray(table.id, ids)));
-  if (affectedRows(result) === 0) return [];
+    const result = await tx
+      .update(table)
+      .set(values)
+      .where(and(where, inArray(table.id, ids)));
+    if (affectedRows(result) === 0) return [];
 
-  return exec.select().from(table).where(inArray(table.id, ids)) as Promise<
-    T["$inferSelect"][]
-  >;
+    return tx.select().from(table).where(inArray(table.id, ids)) as Promise<
+      T["$inferSelect"][]
+    >;
+  });
 }
 
 /**
@@ -165,12 +199,14 @@ export async function upsertReturning<T extends Identifiable>(
     return eq(column, value as never);
   });
 
-  await exec
-    .insert(table)
-    .values(values)
-    .onDuplicateKeyUpdate({ set: conflict.set });
+  return atomically(exec, async (tx) => {
+    await tx
+      .insert(table)
+      .values(values)
+      .onDuplicateKeyUpdate({ set: conflict.set });
 
-  return exec.select().from(table).where(and(...conditions)) as Promise<
-    T["$inferSelect"][]
-  >;
+    return tx.select().from(table).where(and(...conditions)) as Promise<
+      T["$inferSelect"][]
+    >;
+  });
 }
