@@ -6,9 +6,12 @@ name: CI
 # against a mock.
 on:
   push:
+    # Not dev: a push there runs this same suite inside deploy-dev.yml's gate,
+    # so that the build which gets published is one that passed.
     branches: [main, staging]
   pull_request:
-    branches: [main, staging]
+    branches: [main, staging, dev]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -59,3 +62,8 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+      # The rules that keep a deploy off test and production. Cheap, and the
+      # one thing here whose failure mode is publishing to the wrong tier.
+      - name: Deploy guard rules
+        run: bash .github/deploy/guard.test.sh
