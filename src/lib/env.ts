@@ -66,6 +66,19 @@ const serverEnvSchema = z.object({
   // Comma-separated emails bootstrapped to ADMIN on first sign-in.
   BOOTSTRAP_ADMIN_EMAILS: z.string().optional(),
 
+  /**
+   * Comma-separated emails re-promoted to ADMIN on every session refresh,
+   * not just first sign-in (see permanentBootstrapAdminEmails() below) — for
+   * the small number of accounts that must never be lockable-out even by an
+   * accidental or malicious role change. This used to be a hard-coded list of
+   * personal emails baked into source, which meant revoking one needed a code
+   * edit and a redeploy rather than an operational change — the finding
+   * recorded as SEC-03 in the GoKesari audit, which this codebase shares an
+   * ancestor with. Optional and empty by default — set it on a host to get
+   * the stronger guarantee there.
+   */
+  PERMANENT_ADMIN_EMAILS: z.string().optional(),
+
   // Deliveries generated after this local time roll to the next day.
   SUBSCRIPTION_CUTOFF_HOUR: z.coerce.number().int().min(0).max(23).default(20),
 
@@ -183,25 +196,28 @@ export function isPanEncryptionConfigured(): boolean {
  * BOOTSTRAP_ADMIN_EMAILS so deployments can grant further admins via env
  * without code changes.
  */
-const PERMANENT_BOOTSTRAP_ADMIN_EMAILS = [
-  "agtcipl@gmail.com",
-  "sanjaymorankar@gmail.com",
-] as const;
-
-/** Just the permanent list, lower-cased — used for self-healing role checks. */
-export function permanentBootstrapAdminEmails(): readonly string[] {
-  return PERMANENT_BOOTSTRAP_ADMIN_EMAILS.map((e) => e.toLowerCase());
-}
-
-export function bootstrapAdminEmails(): string[] {
-  const fromEnv = (getEnv().BOOTSTRAP_ADMIN_EMAILS ?? "")
+function parseEmailList(raw: string | undefined): string[] {
+  return (raw ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/**
+ * Emails re-promoted to ADMIN on every session refresh — see
+ * PERMANENT_ADMIN_EMAILS above. Empty unless that variable is set; there is
+ * deliberately no hard-coded fallback (SEC-03).
+ */
+export function permanentBootstrapAdminEmails(): readonly string[] {
+  return parseEmailList(getEnv().PERMANENT_ADMIN_EMAILS);
+}
+
+/** Emails granted ADMIN on first sign-in — the union of both env-configured lists. */
+export function bootstrapAdminEmails(): string[] {
   return Array.from(
     new Set([
-      ...PERMANENT_BOOTSTRAP_ADMIN_EMAILS.map((e) => e.toLowerCase()),
-      ...fromEnv,
+      ...permanentBootstrapAdminEmails(),
+      ...parseEmailList(getEnv().BOOTSTRAP_ADMIN_EMAILS),
     ]),
   );
 }
