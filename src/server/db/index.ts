@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 
 import { getEnv } from "@/lib/env";
 import * as schema from "./schema";
@@ -9,48 +9,52 @@ import * as schema from "./schema";
  * modules on every edit in dev, so without this the pool leaks connections.
  */
 const globalForDb = globalThis as unknown as {
-  __sql?: ReturnType<typeof postgres>;
+  __mysqlPool?: mysql.Pool;
 };
 
 /**
- * Managed Postgres providers (Neon, Supabase, RDS) require TLS and advertise it
- * as `?sslmode=require` in the URL. postgres-js needs the flag passed
- * explicitly, so it is read from the URL rather than assumed.
+ * Hostinger's MySQL is reached over `localhost`, so TLS is off by default. A
+ * managed provider that requires it advertises `?ssl=true` in the URL, which is
+ * read here rather than assumed, so the same URL works in both places.
  */
-function resolveSsl(url: string): "require" | false {
+function resolveSsl(url: string): { rejectUnauthorized: boolean } | undefined {
   try {
-    const sslmode = new URL(url).searchParams.get("sslmode");
-    if (!sslmode || sslmode === "disable") return false;
-    return "require";
+    const ssl = new URL(url).searchParams.get("ssl");
+    if (!ssl || ssl === "false" || ssl === "disable") return undefined;
+    return { rejectUnauthorized: ssl !== "no-verify" };
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-function createClient() {
+function createPool() {
   const env = getEnv();
   const url = env.DATABASE_URL;
 
-  return postgres(url, {
-    // Managed providers cap connections far below a self-hosted server — Neon's
-    // free tier allows well under 100 — so the ceiling is configurable rather
-    // than hard-coded.
-    max: env.DATABASE_POOL_MAX,
-    idle_timeout: 20,
-    connect_timeout: 30,
+  return mysql.createPool({
+    uri: url,
+    // Shared hosting caps concurrent connections far below a self-hosted
+    // server, so the ceiling is configurable rather than hard-coded.
+    connectionLimit: env.DATABASE_POOL_MAX,
+    idleTimeout: 20_000,
+    connectTimeout: 30_000,
     ssl: resolveSsl(url),
-    // Money is bigint in the schema; postgres-js would otherwise hand back
-    // strings for int8. Parse to number — all values are well inside 2^53.
-    types: {
-      bigint: postgres.BigInt,
-    },
+    // The columns were `timestamptz` on Postgres and are plain MySQL
+    // TIMESTAMP/DATETIME now, which carry no zone. Pinning the connection to
+    // UTC keeps every value stored and read back as UTC, so behaviour does not
+    // depend on the server's local timezone.
+    timezone: "Z",
+    // Money is bigint paise. Every value is well inside 2^53, so returning
+    // numbers (not strings) matches how the Postgres driver was configured.
+    supportBigNumbers: true,
+    bigNumberStrings: false,
   });
 }
 
-const client = globalForDb.__sql ?? createClient();
-if (getEnv().NODE_ENV !== "production") globalForDb.__sql = client;
+const pool = globalForDb.__mysqlPool ?? createPool();
+if (getEnv().NODE_ENV !== "production") globalForDb.__mysqlPool = pool;
 
-export const db = drizzle(client, { schema });
+export const db = drizzle(pool, { schema, mode: "default" });
 export { schema };
 export type Database = typeof db;
 

@@ -30,6 +30,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 
+import { insertReturning, updateReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -97,33 +98,30 @@ export async function registerDeliveryPartner(
   const { locationVerified, locationVerifiedAt, locationSource } =
     await resolveLocationVerification(input.latitude, input.longitude, "delivery_partner_registration", "delivery_partner");
 
-  const [partner] = await db
-    .insert(deliveryPartners)
-    .values({
-      userId,
-      fullName: input.fullName.trim(),
-      mobile: input.mobile,
-      email: input.email?.trim() || null,
-      dateOfBirth: input.dateOfBirth || null,
-      profilePhotoUrl: input.profilePhotoUrl || null,
-      panNumber: input.panNumber?.trim() || null,
-      governmentIdType: input.governmentIdType?.trim() || null,
-      governmentIdNumber: input.governmentIdNumber?.trim() || null,
-      bankAccountHolderName: input.bankAccountHolderName?.trim() || null,
-      bankAccountNumber: input.bankAccountNumber?.trim() || null,
-      bankIfsc: input.bankIfsc?.trim() || null,
-      vehicleType: input.vehicleType,
-      vehicleRegistrationNumber: input.vehicleRegistrationNumber?.trim() || null,
-      drivingLicenceNumber: input.drivingLicenceNumber?.trim() || null,
-      latitude: input.latitude != null ? String(input.latitude) : null,
-      longitude: input.longitude != null ? String(input.longitude) : null,
-      operatingRadiusKm: input.operatingRadiusKm ?? 5,
-      locationVerified,
-      locationVerifiedAt,
-      locationSource,
-      status: "REGISTERED",
-    })
-    .returning();
+  const [partner] = await insertReturning(db, deliveryPartners, {
+    userId,
+    fullName: input.fullName.trim(),
+    mobile: input.mobile,
+    email: input.email?.trim() || null,
+    dateOfBirth: input.dateOfBirth || null,
+    profilePhotoUrl: input.profilePhotoUrl || null,
+    panNumber: input.panNumber?.trim() || null,
+    governmentIdType: input.governmentIdType?.trim() || null,
+    governmentIdNumber: input.governmentIdNumber?.trim() || null,
+    bankAccountHolderName: input.bankAccountHolderName?.trim() || null,
+    bankAccountNumber: input.bankAccountNumber?.trim() || null,
+    bankIfsc: input.bankIfsc?.trim() || null,
+    vehicleType: input.vehicleType,
+    vehicleRegistrationNumber: input.vehicleRegistrationNumber?.trim() || null,
+    drivingLicenceNumber: input.drivingLicenceNumber?.trim() || null,
+    latitude: input.latitude != null ? String(input.latitude) : null,
+    longitude: input.longitude != null ? String(input.longitude) : null,
+    operatingRadiusKm: input.operatingRadiusKm ?? 5,
+    locationVerified,
+    locationVerifiedAt,
+    locationSource,
+    status: "REGISTERED",
+  });
 
   // A plain customer applying becomes DELIVERY_PARTNER immediately, the same
   // way shop registration promotes to SHOP_OWNER — operators/admins keep
@@ -204,16 +202,12 @@ async function transition(
 ): Promise<DeliveryPartner> {
   const current = await loadForTransition(id);
 
-  const [updated] = await db
-    .update(deliveryPartners)
-    .set({
-      ...set,
-      reviewedBy: actor.id,
-      reviewedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(deliveryPartners.id, id))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryPartners, {
+    ...set,
+    reviewedBy: actor.id,
+    reviewedAt: new Date(),
+    updatedAt: new Date(),
+  }, eq(deliveryPartners.id, id));
 
   await recordAudit({
     actorId: actor.id,
@@ -369,17 +363,13 @@ export async function goOnline(
     throw conflict("Only an approved delivery partner can go online.");
   }
 
-  const [updated] = await db
-    .update(deliveryPartners)
-    .set({
-      isOnline: true,
-      lastLocationLatitude: String(latitude),
-      lastLocationLongitude: String(longitude),
-      lastLocationAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(deliveryPartners.id, partner.id))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryPartners, {
+    isOnline: true,
+    lastLocationLatitude: String(latitude),
+    lastLocationLongitude: String(longitude),
+    lastLocationAt: new Date(),
+    updatedAt: new Date(),
+  }, eq(deliveryPartners.id, partner.id));
 
   await recordAudit({
     actorId: userId,
@@ -396,11 +386,7 @@ export async function goOffline(userId: string): Promise<DeliveryPartner> {
   const partner = await getMyDeliveryPartnerProfile(userId);
   if (!partner) throw notFound("Delivery partner profile");
 
-  const [updated] = await db
-    .update(deliveryPartners)
-    .set({ isOnline: false, updatedAt: new Date() })
-    .where(eq(deliveryPartners.id, partner.id))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryPartners, { isOnline: false, updatedAt: new Date() }, eq(deliveryPartners.id, partner.id));
 
   await recordAudit({
     actorId: userId,

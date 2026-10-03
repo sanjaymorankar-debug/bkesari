@@ -134,14 +134,30 @@ export function toClientError(error: unknown): {
   };
 }
 
-/** Postgres unique-violation code, used to detect idempotency-key collisions. */
-export const PG_UNIQUE_VIOLATION = "23505";
+/**
+ * MySQL's duplicate-key error, used to detect idempotency-key collisions.
+ *
+ * mysql2 reports it as `ER_DUP_ENTRY` with `errno` 1062 (SQLSTATE 23000). Both
+ * are checked because the string code is the documented surface while `errno` is
+ * what survives being serialised across a driver boundary. The Postgres driver
+ * raised SQLSTATE 23505 instead, which never matches on MySQL — so leaving the
+ * old value here would have silently turned every idempotency-key collision
+ * into an unhandled 500 instead of the conflict the callers expect.
+ */
+export const MYSQL_DUPLICATE_ENTRY = 1062;
 
 export function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === PG_UNIQUE_VIOLATION
-  );
+  // Drizzle does not surface driver errors directly: it throws
+  // `DrizzleQueryError` and hangs the mysql2 error off `cause`. The chain is
+  // walked rather than just the top-level object, so this keeps working whether
+  // the error arrives wrapped or raw.
+  let current: unknown = error;
+  for (let depth = 0; current !== null && current !== undefined && depth < 5; depth += 1) {
+    const err = current as { code?: unknown; errno?: unknown; cause?: unknown };
+    if (err.code === "ER_DUP_ENTRY" || err.errno === MYSQL_DUPLICATE_ENTRY) {
+      return true;
+    }
+    current = err.cause;
+  }
+  return false;
 }

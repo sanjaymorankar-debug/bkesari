@@ -1,7 +1,7 @@
 /**
  * Pure opening-hours logic, split out from server/services/shops.ts so
  * client components can check whether a shop is open without pulling in
- * that file's database imports (postgres uses Node's `fs`, which breaks a
+ * that file's database imports (mysql2 uses Node's `fs`, which breaks a
  * client bundle).
  */
 import type { Shop } from "@/server/db/schema";

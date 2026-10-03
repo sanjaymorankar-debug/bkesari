@@ -23,6 +23,7 @@ import { shops, type GstStatus, type PanStatus, type Shop, type UserRole } from 
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 
+import { updateReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -84,20 +85,16 @@ export async function submitGstin(shopId: string, gstin: string, actor: Actor): 
     }
   }
 
-  const [updated] = await db
-    .update(shops)
-    .set({
-      gstin: normalized,
-      gstStatus: status,
-      legalBusinessName: legalName,
-      gstTradeName: tradeName,
-      gstVerificationSource: source,
-      gstVerifiedAt: verifiedAt,
-      gstVerifiedBy: verifiedAt ? null : shop.gstVerifiedBy,
-      updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, {
+    gstin: normalized,
+    gstStatus: status,
+    legalBusinessName: legalName,
+    gstTradeName: tradeName,
+    gstVerificationSource: source,
+    gstVerifiedAt: verifiedAt,
+    gstVerifiedBy: verifiedAt ? null : shop.gstVerifiedBy,
+    updatedAt: new Date(),
+  }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,
@@ -116,19 +113,15 @@ export async function submitGstin(shopId: string, gstin: string, actor: Actor): 
 export async function setGstNotRegistered(shopId: string, actor: Actor): Promise<Shop> {
   const shop = await loadOwnedShop(shopId, actor);
 
-  const [updated] = await db
-    .update(shops)
-    .set({
-      gstStatus: "NOT_REGISTERED",
-      gstin: null,
-      gstTradeName: null,
-      gstVerificationSource: null,
-      gstVerifiedAt: null,
-      gstVerifiedBy: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, {
+    gstStatus: "NOT_REGISTERED",
+    gstin: null,
+    gstTradeName: null,
+    gstVerificationSource: null,
+    gstVerifiedAt: null,
+    gstVerifiedBy: null,
+    updatedAt: new Date(),
+  }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,
@@ -154,19 +147,15 @@ export async function adminVerifyGst(
   if (!shop.gstin) throw conflict("This shop has not submitted a GSTIN.");
   if (shop.gstStatus === "REGISTERED") throw conflict("This GSTIN is already verified.");
 
-  const [updated] = await db
-    .update(shops)
-    .set({
-      gstStatus: "REGISTERED",
-      legalBusinessName: correction?.legalName ?? shop.legalBusinessName,
-      gstTradeName: correction?.tradeName !== undefined ? correction.tradeName : shop.gstTradeName,
-      gstVerificationSource: "ADMIN_VERIFIED",
-      gstVerifiedAt: new Date(),
-      gstVerifiedBy: actor.id,
-      updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, {
+    gstStatus: "REGISTERED",
+    legalBusinessName: correction?.legalName ?? shop.legalBusinessName,
+    gstTradeName: correction?.tradeName !== undefined ? correction.tradeName : shop.gstTradeName,
+    gstVerificationSource: "ADMIN_VERIFIED",
+    gstVerifiedAt: new Date(),
+    gstVerifiedBy: actor.id,
+    updatedAt: new Date(),
+  }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,
@@ -194,11 +183,7 @@ export async function adminRejectGst(shopId: string, reason: string, actor: Acto
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
 
-  const [updated] = await db
-    .update(shops)
-    .set({ gstStatus: "VERIFICATION_FAILED", updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, { gstStatus: "VERIFICATION_FAILED", updatedAt: new Date() }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,
@@ -255,20 +240,16 @@ export async function submitPan(
     }
   }
 
-  const [updated] = await db
-    .update(shops)
-    .set({
-      panNumberEncrypted: encrypted,
-      panLast4: last4,
-      panHolderName: confirmedHolderName,
-      panStatus: status,
-      panVerificationSource: source,
-      panVerifiedAt: verifiedAt,
-      panVerifiedBy: verifiedAt ? null : shop.panVerifiedBy,
-      updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, {
+    panNumberEncrypted: encrypted,
+    panLast4: last4,
+    panHolderName: confirmedHolderName,
+    panStatus: status,
+    panVerificationSource: source,
+    panVerifiedAt: verifiedAt,
+    panVerifiedBy: verifiedAt ? null : shop.panVerifiedBy,
+    updatedAt: new Date(),
+  }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,
@@ -290,17 +271,13 @@ export async function adminVerifyPan(shopId: string, actor: Actor): Promise<Shop
   if (!shop.panNumberEncrypted) throw conflict("This shop has not submitted a PAN.");
   if (shop.panStatus === "VERIFIED") throw conflict("This PAN is already verified.");
 
-  const [updated] = await db
-    .update(shops)
-    .set({
-      panStatus: "VERIFIED",
-      panVerificationSource: "ADMIN_VERIFIED",
-      panVerifiedAt: new Date(),
-      panVerifiedBy: actor.id,
-      updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, {
+    panStatus: "VERIFIED",
+    panVerificationSource: "ADMIN_VERIFIED",
+    panVerifiedAt: new Date(),
+    panVerifiedBy: actor.id,
+    updatedAt: new Date(),
+  }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,
@@ -328,11 +305,7 @@ export async function adminRejectPan(shopId: string, reason: string, actor: Acto
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
 
-  const [updated] = await db
-    .update(shops)
-    .set({ panStatus: "VERIFICATION_FAILED", updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(db, shops, { panStatus: "VERIFICATION_FAILED", updatedAt: new Date() }, eq(shops.id, shopId));
 
   await recordAudit({
     actorId: actor.id,

@@ -31,6 +31,8 @@ import {
 } from "../authz/permissions";
 import { SHOP_TYPES } from "@/lib/shop-types";
 
+import { upsertReturning } from "./returning";
+import { nextProductCode, nextShopRegistrationNumber } from "./sequences";
 /** Requirement §7 — the starting catalogue. */
 const DAIRY_CATALOGUE = [
   { category: "Milk", unit: "L", subscribable: true, items: ["Cow Milk", "Buffalo Milk", "Toned Milk", "Full Cream Milk"] },
@@ -65,14 +67,14 @@ async function seedRolesAndPermissions(): Promise<void> {
     await db
       .insert(roles)
       .values({ key: key as keyof typeof ROLE_LABELS, label })
-      .onConflictDoUpdate({ target: roles.key, set: { label } });
+      .onDuplicateKeyUpdate({ set: { label } });
   }
 
   for (const [key, description] of Object.entries(PERMISSION_DESCRIPTIONS)) {
     await db
       .insert(permissionsTable)
       .values({ key, description })
-      .onConflictDoUpdate({ target: permissionsTable.key, set: { description } });
+      .onDuplicateKeyUpdate({ set: { description } });
   }
 
   // Mirror the in-code matrix so permissions are reportable from SQL.
@@ -82,7 +84,7 @@ async function seedRolesAndPermissions(): Promise<void> {
       await db
         .insert(rolePermissions)
         .values({ roleKey: roleKey as keyof typeof ROLE_LABELS, permissionKey })
-        .onConflictDoNothing();
+        .onDuplicateKeyUpdate({ set: { permissionKey: sql`${rolePermissions.permissionKey}` } });
     }
   }
   console.log("  roles & permissions seeded");
@@ -100,25 +102,22 @@ async function seedCatalogue(): Promise<void> {
   for (const group of groups) {
     for (const [index, entry] of group.entries.entries()) {
       const categorySlug = slugify(`${group.department}-${entry.category}`);
-      const [category] = await db
-        .insert(productCategories)
-        .values({
-          department: group.department,
-          name: entry.category,
-          slug: categorySlug,
-          sortOrder: index,
-        })
-        .onConflictDoUpdate({
-          target: productCategories.slug,
-          set: { name: entry.category, sortOrder: index },
-        })
-        .returning();
+      const [category] = await upsertReturning(db, productCategories, {
+        department: group.department,
+        name: entry.category,
+        slug: categorySlug,
+        sortOrder: index,
+      }, {
+        target: productCategories.slug,
+        set: { name: entry.category, sortOrder: index },
+      });
       categoryCount += 1;
 
       for (const item of entry.items) {
         await db
           .insert(products)
           .values({
+            code: await nextProductCode(db),
             categoryId: category.id,
             name: item,
             slug: slugify(item),
@@ -126,8 +125,7 @@ async function seedCatalogue(): Promise<void> {
             unitSizeMilli: 1000,
             subscribable: entry.subscribable,
           })
-          .onConflictDoUpdate({
-            target: products.slug,
+          .onDuplicateKeyUpdate({
             set: { categoryId: category.id, subscribable: entry.subscribable },
           });
         productCount += 1;
@@ -158,20 +156,16 @@ async function seedGeneralCatalogue(): Promise<void> {
     if (excluded.has(shopType.key)) continue;
 
     const categorySlug = slugify(shopType.label);
-    const [category] = await db
-      .insert(productCategories)
-      .values({
-        department: shopType.key,
-        name: shopType.label,
-        slug: categorySlug,
-        description: `Standard goods for a ${shopType.label.toLowerCase()}.`,
-        sortOrder: 0,
-      })
-      .onConflictDoUpdate({
-        target: productCategories.slug,
-        set: { name: shopType.label, department: shopType.key },
-      })
-      .returning();
+    const [category] = await upsertReturning(db, productCategories, {
+      department: shopType.key,
+      name: shopType.label,
+      slug: categorySlug,
+      description: `Standard goods for a ${shopType.label.toLowerCase()}.`,
+      sortOrder: 0,
+    }, {
+      target: productCategories.slug,
+      set: { name: shopType.label, department: shopType.key },
+    });
     categoryCount += 1;
 
     for (const good of shopType.standardGoods) {
@@ -179,6 +173,7 @@ async function seedGeneralCatalogue(): Promise<void> {
       await db
         .insert(products)
         .values({
+          code: await nextProductCode(db),
           categoryId: category.id,
           name: good,
           slug: productSlug,
@@ -188,8 +183,7 @@ async function seedGeneralCatalogue(): Promise<void> {
           // general goods are not offered as subscriptions.
           subscribable: false,
         })
-        .onConflictDoUpdate({
-          target: products.slug,
+        .onDuplicateKeyUpdate({
           set: { categoryId: category.id, name: good },
         });
       productCount += 1;
@@ -278,18 +272,13 @@ async function seedDemoMarketplace(): Promise<void> {
   };
 
   for (const demo of demoShops) {
-    const [owner] = await db
-      .insert(users)
-      .values({ email: demo.email, name: `${demo.name} Owner`, role: "SHOP_OWNER" })
-      .onConflictDoUpdate({ target: users.email, set: { role: "SHOP_OWNER" } })
-      .returning();
-    await db.insert(wallets).values({ userId: owner.id }).onConflictDoNothing();
+    const [owner] = await upsertReturning(db, users, { email: demo.email, name: `${demo.name} Owner`, role: "SHOP_OWNER" }, { target: users.email, set: { role: "SHOP_OWNER" } });
+    await db.insert(wallets).values({ userId: owner.id }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
 
     const slug = slugify(demo.name);
     const status = demo.status ?? "APPROVED";
-    const [shop] = await db
-      .insert(shops)
-      .values({
+    const [shop] = await upsertReturning(db, shops, {
+      registrationNumber: await nextShopRegistrationNumber(db),
         ownerId: owner.id,
         name: demo.name,
         slug,
@@ -314,12 +303,10 @@ async function seedDemoMarketplace(): Promise<void> {
           close: "22:00",
         })),
         approvedAt: status === "APPROVED" ? new Date() : null,
-      })
-      .onConflictDoUpdate({
+      }, {
         target: shops.slug,
         set: { status, classification: demo.classification },
-      })
-      .returning();
+      });
 
     for (const productSlug of demo.picks) {
       const product = await db.query.products.findFirst({
@@ -343,8 +330,7 @@ async function seedDemoMarketplace(): Promise<void> {
           isActive: true,
           isAvailable: true,
         })
-        .onConflictDoUpdate({
-          target: [shopProducts.shopId, shopProducts.productId],
+        .onDuplicateKeyUpdate({
           set: {
             onlinePricePaise: price.online,
             offlinePricePaise: price.offline,
@@ -375,8 +361,7 @@ async function seedDemoMarketplace(): Promise<void> {
         isActive: true,
         isAvailable: true,
       })
-      .onConflictDoUpdate({
-        target: [shopProducts.shopId, shopProducts.productId],
+      .onDuplicateKeyUpdate({
         set: { onlineSaleEnabled: false, onlinePricePaise: null },
       });
   }
@@ -394,7 +379,7 @@ async function main() {
   if (!minimal) await seedDemoMarketplace();
 
   const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql<number>`count(*)` })
     .from(products);
   console.log(`Done. ${count} products in catalogue.`);
   process.exit(0);

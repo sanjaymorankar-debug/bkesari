@@ -17,6 +17,7 @@ import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
 import { db } from "@/server/db";
 import { userConsents, type ConsentType, type UserConsent } from "@/server/db/schema";
 
+import { insertReturning } from "@/server/db/returning";
 export { CURRENT_POLICY_VERSION };
 
 export async function recordConsent(
@@ -24,15 +25,12 @@ export async function recordConsent(
   consentType: ConsentType,
   options: { version?: string; ipAddress?: string | null } = {},
 ): Promise<UserConsent> {
-  const [consent] = await db
-    .insert(userConsents)
-    .values({
-      userId,
-      consentType,
-      version: options.version ?? CURRENT_POLICY_VERSION,
-      ipAddress: options.ipAddress ?? null,
-    })
-    .returning();
+  const [consent] = await insertReturning(db, userConsents, {
+    userId,
+    consentType,
+    version: options.version ?? CURRENT_POLICY_VERSION,
+    ipAddress: options.ipAddress ?? null,
+  });
   return consent;
 }
 
