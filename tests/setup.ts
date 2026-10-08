@@ -18,8 +18,11 @@ if (!testUrl) {
 const env = process.env as Record<string, string | undefined>;
 env.DATABASE_URL = testUrl;
 env.NODE_ENV = "test";
-env.AUTH_SECRET ??= "test-secret";
-env.CRON_SECRET ??= "test-cron-secret";
+// `||=`, not `??=`: .env.example ships these keys blank, and dotenv loads a
+// blank as "", which `??=` keeps. The app treats "" as unset (src/lib/env.ts),
+// so a fresh `cp .env.example .env` would otherwise switch these off for tests.
+env.AUTH_SECRET ||= "test-secret";
+env.CRON_SECRET ||= "test-cron-secret";
 // Force-overridden, not `??=`: .env now carries real Cashfree sandbox
 // credentials for manual testing, and dotenv/config above already loaded
 // them into process.env. isPaymentGatewayLive() is `Boolean(APP_ID &&
@@ -31,7 +34,7 @@ env.CASHFREE_APP_ID = "";
 env.CASHFREE_SECRET_KEY = "test-webhook-secret";
 // Fake key so isGeocodingConfigured() is true — tests that exercise the
 // verify-location path stub global.fetch, so this never makes a real call.
-env.GOOGLE_MAPS_SERVER_API_KEY ??= "test-google-maps-key";
+env.GOOGLE_MAPS_SERVER_API_KEY ||= "test-google-maps-key";
 // Force-cleared: no GST/PAN verification provider exists yet, and every test
 // here assumes the self-declared/PENDING_VERIFICATION path (see
 // gst-pan-verification.ts) — never the provider-lookup path.
@@ -39,4 +42,4 @@ env.GST_PROVIDER_API_KEY = "";
 env.PAN_PROVIDER_API_KEY = "";
 // Fixed test-only AES-256 key (32 bytes, base64) so PAN encryption tests
 // don't depend on a real secret ever landing in .env.
-env.PAN_ENCRYPTION_KEY ??= "VEqrHq1Y8qZmFzw8A9VFcDd+fsBqEXDUOA/9d0ieO+U=";
+env.PAN_ENCRYPTION_KEY ||= "VEqrHq1Y8qZmFzw8A9VFcDd+fsBqEXDUOA/9d0ieO+U=";
