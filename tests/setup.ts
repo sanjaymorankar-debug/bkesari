@@ -40,3 +40,13 @@ env.PAN_PROVIDER_API_KEY = "";
 // Fixed test-only AES-256 key (32 bytes, base64) so PAN encryption tests
 // don't depend on a real secret ever landing in .env.
 env.PAN_ENCRYPTION_KEY ??= "VEqrHq1Y8qZmFzw8A9VFcDd+fsBqEXDUOA/9d0ieO+U=";
+
+// Force-cleared, not `??=`: the SEC-03 tests assert that NOTHING is bootstrapped
+// to ADMIN unless a variable says so, and dotenv/config above has already loaded
+// the developer's .env. README actively recommends setting PERMANENT_ADMIN_EMAILS
+// locally, so without this a developer who followed that advice gets a red suite
+// for the one check whose whole point is that the default grants nobody anything.
+// CI only passes by accident of having no .env at all.
+// tests/unit/env-admin-emails.test.ts sets both of these itself, per test.
+env.PERMANENT_ADMIN_EMAILS = "";
+env.BOOTSTRAP_ADMIN_EMAILS = "";
