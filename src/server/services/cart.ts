@@ -9,7 +9,7 @@
  * A cart may span several shops. Totals are therefore always computed *per
  * shop*, and checkout produces one order per shop (§17).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
@@ -83,7 +83,7 @@ export async function getOrCreateCart(
   });
   if (existing) return existing;
 
-  await client.insert(carts).values({ userId }).onConflictDoNothing();
+  await client.insert(carts).values({ userId }).onDuplicateKeyUpdate({ set: { userId: sql`${carts.userId}` } });
   const created = await client.query.carts.findFirst({
     where: eq(carts.userId, userId),
     columns: { id: true },

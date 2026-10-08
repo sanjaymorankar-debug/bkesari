@@ -34,6 +34,7 @@ import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
 
+import { insertReturning, updateReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -115,15 +116,8 @@ export async function assignNearestPartner(orderId: string, actor: Actor): Promi
   };
 
   const [deliveryOrder] = existing
-    ? await db
-        .update(deliveryOrders)
-        .set(values)
-        .where(eq(deliveryOrders.id, existing.id))
-        .returning()
-    : await db
-        .insert(deliveryOrders)
-        .values({ orderId, ...values })
-        .returning();
+    ? await updateReturning(db, deliveryOrders, values, eq(deliveryOrders.id, existing.id))
+    : await insertReturning(db, deliveryOrders, { orderId, ...values });
 
   await recordAudit({
     actorId: actor.id,
@@ -191,11 +185,7 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
   const row = await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId);
   if (row.status !== "OFFERED") throw conflict("This delivery offer is no longer available.");
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({ status: "ACCEPTED", acceptedAt: new Date(), updatedAt: new Date() })
-    .where(eq(deliveryOrders.id, deliveryOrderId))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryOrders, { status: "ACCEPTED", acceptedAt: new Date(), updatedAt: new Date() }, eq(deliveryOrders.id, deliveryOrderId));
 
   await recordAudit({
     actorId: partnerUserId,
@@ -216,16 +206,12 @@ export async function rejectDeliveryOffer(
   const row = await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId);
   if (row.status !== "OFFERED") throw conflict("This delivery offer is no longer available.");
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({
-      status: "REJECTED",
-      cancelledAt: new Date(),
-      cancellationReason: reason?.trim() || null,
-      updatedAt: new Date(),
-    })
-    .where(eq(deliveryOrders.id, deliveryOrderId))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryOrders, {
+    status: "REJECTED",
+    cancelledAt: new Date(),
+    cancellationReason: reason?.trim() || null,
+    updatedAt: new Date(),
+  }, eq(deliveryOrders.id, deliveryOrderId));
 
   await recordAudit({
     actorId: partnerUserId,
@@ -244,11 +230,7 @@ export async function markPickedUp(deliveryOrderId: string, actor: Actor): Promi
     throw conflict("This delivery must be accepted before it can be marked picked up.");
   }
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({ status: "PICKED_UP", pickedUpAt: new Date(), updatedAt: new Date() })
-    .where(eq(deliveryOrders.id, deliveryOrderId))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryOrders, { status: "PICKED_UP", pickedUpAt: new Date(), updatedAt: new Date() }, eq(deliveryOrders.id, deliveryOrderId));
 
   await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor);
 
@@ -270,11 +252,7 @@ export async function markDelivered(deliveryOrderId: string, actor: Actor): Prom
     throw conflict("This delivery must be picked up before it can be marked delivered.");
   }
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({ status: "DELIVERED", deliveredAt: new Date(), updatedAt: new Date() })
-    .where(eq(deliveryOrders.id, deliveryOrderId))
-    .returning();
+  const [updated] = await updateReturning(db, deliveryOrders, { status: "DELIVERED", deliveredAt: new Date(), updatedAt: new Date() }, eq(deliveryOrders.id, deliveryOrderId));
 
   await updateOrderStatus(row.orderId, "DELIVERED", actor);
   await creditDeliveryEarnings(deliveryOrderId);

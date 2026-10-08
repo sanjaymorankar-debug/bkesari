@@ -2,24 +2,48 @@
 
 Targets Hostinger Node.js Web App Hosting (which auto-detects Next.js and runs
 `npm run build` / `npm start`), but nothing here is Hostinger-specific — any
-Node 20+ host with a PostgreSQL database works.
+Node 20+ host with a **MySQL 8.0.16+** database works. (8.0.16 is where MySQL
+began enforcing `CHECK` constraints, which the schema relies on.)
 
-## 1. Provision PostgreSQL
+For the dev tier this is automated: pushing to `dev` deploys through
+`.github/workflows/deploy-dev.yml`. See `DEPLOY.md` in the `bkesari-platform`
+repository, Part 6, for the one-time secret setup. Everything below is the
+manual procedure, and is still what test and production use.
 
-Create the production database and a dedicated application user. Do **not** use
-a superuser for the app.
+## 1. Provision MySQL
+
+On Hostinger, hPanel → Databases → MySQL Databases creates the database and its
+user together, and the host is `localhost`. Each tier gets its **own** database
+and never connects to another's:
+
+| Tier | Database |
+|---|---|
+| dev | `u879099820_main_milk_dev` |
+| test | `u879099820_main_milk_test` (not created yet) |
+| production | `u879099820_main_milk_prod` (not created yet) |
+
+Database names are case-sensitive on Linux — match hPanel exactly.
+
+Elsewhere, create the database and a dedicated application user by hand. Do
+**not** use `root` for the app:
 
 ```sql
-CREATE DATABASE dairy_bakery;
-CREATE USER dairy_app WITH PASSWORD '<strong-password>';
-GRANT ALL PRIVILEGES ON DATABASE dairy_bakery TO dairy_app;
+CREATE DATABASE dairy_bakery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'dairy_app'@'localhost' IDENTIFIED BY '<strong-password>';
+GRANT ALL PRIVILEGES ON dairy_bakery.* TO 'dairy_app'@'localhost';
+FLUSH PRIVILEGES;
 ```
 
-Require TLS in transit:
+Fill in `DB_HOST`, `DB_NAME`, `DB_USER` and `DB_PASS` in the server's `.env`
+(see `.env.example`), or give the whole connection string at once:
 
 ```
-DATABASE_URL=postgresql://dairy_app:<password>@<host>:5432/dairy_bakery?sslmode=require
+DATABASE_URL=mysql://dairy_app:<password>@localhost:3306/dairy_bakery
 ```
+
+On Hostinger the database is local and the connection does not cross a network,
+so no TLS is used. Against a managed provider that requires TLS, add `?ssl=true`
+— the connection code reads that flag rather than assuming either way.
 
 ## 2. Configure environment variables
 
@@ -27,7 +51,8 @@ Set these in the host's environment-variable UI — never commit them.
 
 ```bash
 NODE_ENV=production
-DATABASE_URL=postgresql://dairy_app:...@host:5432/dairy_bakery?sslmode=require
+APP_ENV=prod
+DATABASE_URL=mysql://dairy_app:...@localhost:3306/dairy_bakery
 
 AUTH_SECRET=<openssl rand -base64 32>
 AUTH_URL=https://your-domain.com
@@ -161,13 +186,27 @@ correct for local development but must never reach production — confirm
 Wallet balances are money. Treat the database accordingly.
 
 ```bash
-# Nightly logical backup, 30-day retention
-0 2 * * * pg_dump "$DATABASE_URL" -Fc \
-  -f /backups/dairy_$(date +\%F).dump && \
-  find /backups -name 'dairy_*.dump' -mtime +30 -delete
+# Nightly logical backup, 30-day retention. --single-transaction keeps the dump
+# consistent without locking the site out, and routines/triggers/events are not
+# included by default.
+0 2 * * * mysqldump --single-transaction --quick --routines --triggers --events \
+  -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  | gzip > /backups/dairy_$(date +\%F).sql.gz && \
+  find /backups -name 'dairy_*.sql.gz' -mtime +30 -delete
 ```
 
-- Enable point-in-time recovery (WAL archiving) if the provider offers it.
+Restore with:
+
+```bash
+gunzip -c /backups/dairy_<date>.sql.gz \
+  | mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+```
+
+On Hostinger, hPanel → Files → Backups also takes database snapshots, and
+phpMyAdmin → Export produces the same kind of dump through the browser if you
+have no shell.
+
+- Enable point-in-time recovery (binary logging) if the provider offers it.
 - Store backups off-host.
 - **Restore-test quarterly.** An untested backup is a hypothesis, not a backup.
 
@@ -237,7 +276,7 @@ Rollback checklist:
 ## 10. Pre-launch checklist
 
 - [ ] `AUTH_SECRET` and `CRON_SECRET` are freshly generated, not the dev defaults
-- [ ] `DATABASE_URL` uses a non-superuser and `sslmode=require`
+- [ ] The database user is not `root`, and this tier points at its **own** database
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
 - [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once

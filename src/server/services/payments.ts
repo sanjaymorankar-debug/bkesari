@@ -39,6 +39,7 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getOrCreateWallet, applyWalletMutation } from "./wallet";
 import { previewVoucher, redeemVoucher } from "./vouchers";
 
+import { insertReturning, updateReturningIfChanged } from "@/server/db/returning";
 /** Minimum top-up, in paise. */
 const MIN_TOPUP_PAISE = 100;
 /** Sanity ceiling to blunt fat-finger and abuse cases. */
@@ -99,19 +100,16 @@ export async function createTopUpOrder(
     gatewayOrderId = `mock_order_${crypto.randomUUID()}`;
   }
 
-  const [payment] = await db
-    .insert(payments)
-    .values({
-      userId,
-      gateway: live ? "CASHFREE" : "MOCK",
-      gatewayOrderId,
-      amountPaise,
-      currency: "INR",
-      status: "CREATED",
-      purpose: "WALLET_TOPUP",
-      voucherCode: voucherPreview?.code ?? null,
-    })
-    .returning();
+  const [payment] = await insertReturning(db, payments, {
+    userId,
+    gateway: live ? "CASHFREE" : "MOCK",
+    gatewayOrderId,
+    amountPaise,
+    currency: "INR",
+    status: "CREATED",
+    purpose: "WALLET_TOPUP",
+    voucherCode: voucherPreview?.code ?? null,
+  });
 
   return {
     payment,
@@ -281,17 +279,13 @@ async function finalizeVerifiedPayment(
 ): Promise<VerifyTopUpResult> {
   // Mark verified. The UNIQUE index on gateway_payment_id means a concurrent
   // duplicate callback fails here rather than producing a second credit.
-  const [verified] = await db
-    .update(payments)
-    .set({
-      gatewayPaymentId: gateway.gatewayPaymentId,
-      gatewaySignature: gateway.gatewaySignature,
-      status: "SUCCESS",
-      verifiedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(payments.id, payment.id), eq(payments.status, "CREATED")))
-    .returning();
+  const [verified] = await updateReturningIfChanged(db, payments, {
+    gatewayPaymentId: gateway.gatewayPaymentId,
+    gatewaySignature: gateway.gatewaySignature,
+    status: "SUCCESS",
+    verifiedAt: new Date(),
+    updatedAt: new Date(),
+  }, and(eq(payments.id, payment.id), eq(payments.status, "CREATED")));
 
   // Another caller (the other of {client verify, webhook}) won the race
   // between our SELECT above and this UPDATE — treat as an already-processed

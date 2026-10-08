@@ -6,7 +6,7 @@
  * Email uses a console transport until SMTP credentials are configured — the
  * seam exists so wiring a provider is a one-file change.
  */
-import { and, count, desc, eq, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { db, type DbClient } from "@/server/db";
 import { notifications, type Notification } from "@/server/db/schema";
@@ -85,7 +85,7 @@ export async function notify(
             sentAt: new Date(),
           })
           // Relies on the unique index over dedupe_key.
-          .onConflictDoNothing();
+          .onDuplicateKeyUpdate({ set: { dedupeKey: sql`${notifications.dedupeKey}` } });
       } else {
         await dispatchExternal(channel, input);
       }

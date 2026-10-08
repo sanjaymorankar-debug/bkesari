@@ -1,7 +1,7 @@
 /**
  * Delivery-partner vehicle types (delivery-system Part 58 follow-up).
  *
- * An app-level list, not a Postgres enum — the brief calls for vehicle
+ * An app-level list, not a database enum — the brief calls for vehicle
  * types to be "configurable"; adding one here is a code change, not a
  * schema migration. Mirrors the SHOP_TYPES pattern in shop-types.ts.
  */
