@@ -106,12 +106,21 @@ jobs:
 
       - name: Build
         env:
-          # next build needs to resolve the config, not reach a database. This
-          # URL is never connected to: it is here so that a module reading
-          # env at import time does not throw during the build.
+          # The three variables src/lib/env.ts requires with no default. The
+          # build imports modules that validate the whole environment at load
+          # time, so all three must be present or `next build` dies collecting
+          # page data — none of them is connected to or used at runtime, which
+          # comes from the server's own .env.
           DATABASE_URL: mysql://build:build@127.0.0.1:3306/build
           AUTH_SECRET: build-only-not-used-at-runtime
+          CRON_SECRET: build-only-not-used-at-runtime
           APP_ENV: dev
+          # The hub forwards /milk/ to this app WITHOUT stripping the prefix,
+          # so the app has to own it. basePath is baked in at build time and
+          # cannot come from the server's .env, which is only read at runtime —
+          # hence here. See next.config.ts.
+          BASE_PATH: /milk
+          BASE_URL: https://dev.bkesari.com/milk
         # NOTE: anything named NEXT_PUBLIC_* is baked into the bundle at this
         # point, from this environment — not from the server's .env, which is
         # read at runtime and so arrives too late. Nothing public is set here
