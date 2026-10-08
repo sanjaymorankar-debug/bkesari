@@ -1,3 +1,36 @@
+> ## ⚠️ This repo and `GoKesari` are the same app, diverging
+>
+> There are two repositories for this application and **work in one is invisible
+> to the other**. Verified against both `main` branches:
+>
+> | | this repo (`bkesari`) | [`GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari) |
+> |---|---|---|
+> | Commits | 30 | 84 |
+> | Files under `src/` | 217 | 492 |
+> | Commits not in the other | **4** | 58 |
+> | Branding in `src/` | `Bkesari` ×8, `bkesari.com` ×2 | `GoKesari` ×89, `gokesari.com` ×4 |
+> | `CNAME` | `test.bkesari.com` | `test.bkesari.com` |
+>
+> They share a root commit, and until 2026-10-02 this repo was a strict subset of
+> `GoKesari` — every commit here was already there, including *"Rebrand Bkesari to
+> GoKesari"*. That is no longer true: PR #8 **restored Bkesari branding** here, so
+> the two now differ deliberately on brand, and this repo carries 4 commits of its
+> own.
+>
+> `GoKesari` remains far ahead on features — 275 more files under `src/`.
+>
+> **Both `CNAME` files say `test.bkesari.com`**, so they also disagree about which
+> one owns that hostname. Which repo is canonical, and whether `Bkesari` and
+> `GoKesari` are meant to be two brands of one codebase or one product that got
+> renamed, is a decision for the owner — this note only records the measurements.
+>
+> Re-check the divergence at any time with:
+>
+> ```bash
+> comm -23 <(git -C bkesari  log --format='%s' origin/main | sort -u) \
+>          <(git -C GoKesari log --all --format='%s'        | sort -u)
+> ```
+
 # Dairy & Bakery Marketplace
 
 A production-oriented marketplace for local dairy and bakery shops: wallet-based
