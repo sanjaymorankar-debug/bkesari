@@ -6,14 +6,13 @@
  * their own role — that mirrors SELF_ASSIGNABLE_ROLES in authz/permissions.ts
  * and stops an admin from ever locking themselves out by mistake.
  */
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or } from "drizzle-orm";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { users, userRoleEnum, type User, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-import { updateReturning } from "@/server/db/returning";
 export interface ListUsersOptions {
   query?: string;
   role?: UserRole;
@@ -25,7 +24,7 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<User[]>
   const conditions = [];
   if (options.query) {
     const term = `%${options.query}%`;
-    conditions.push(or(like(users.email, term), like(users.name, term))!);
+    conditions.push(or(ilike(users.email, term), ilike(users.name, term))!);
   }
   if (options.role) conditions.push(eq(users.role, options.role));
 
@@ -58,7 +57,11 @@ export async function setUserRole(
 
   if (current.role === role) return current;
 
-  const [updated] = await updateReturning(db, users, { role, updatedAt: new Date() }, eq(users.id, userId));
+  const [updated] = await db
+    .update(users)
+    .set({ role, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,

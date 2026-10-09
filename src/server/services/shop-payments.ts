@@ -26,7 +26,6 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-import { insertReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -40,7 +39,7 @@ interface Actor {
 async function nextReference(tx: DbClient): Promise<string> {
   const year = new Date().getFullYear();
   const [{ n }] = await tx
-    .select({ n: sql<number>`COUNT(*)` })
+    .select({ n: sql<number>`COUNT(*)::int` })
     .from(shopPayments);
   return `PAY-${year}-${String(n + 1).padStart(6, "0")}`;
 }
@@ -68,7 +67,7 @@ async function recomputeShopSettlement(
 
   const [{ paid }] = await tx
     .select({
-      paid: sql<number>`CAST(COALESCE(SUM(${shopPayments.amountPaise}), 0) AS SIGNED)`,
+      paid: sql<number>`COALESCE(SUM(${shopPayments.amountPaise}), 0)::bigint`,
     })
     .from(shopPayments)
     .where(eq(shopPayments.shopId, shopId));
@@ -142,20 +141,23 @@ export async function recordPayment(
     const signed =
       input.paymentType === "REFUND" ? -input.amountPaise : input.amountPaise;
 
-    const [payment] = await insertReturning(tx, shopPayments, {
-      reference: await nextReference(tx),
-      shopId: shop.id,
-      ownerId: shop.ownerId,
-      paymentType: input.paymentType,
-      amountPaise: signed,
-      method: input.method ?? "CASH",
-      transactionId: input.transactionId ?? null,
-      feeSnapshotPaise: shop.registrationFeePaise,
-      paidAt: input.paidAt ?? new Date(),
-      note: input.note ?? null,
-      receiptUrl: input.receiptUrl ?? null,
-      recordedBy: actor.id,
-    });
+    const [payment] = await tx
+      .insert(shopPayments)
+      .values({
+        reference: await nextReference(tx),
+        shopId: shop.id,
+        ownerId: shop.ownerId,
+        paymentType: input.paymentType,
+        amountPaise: signed,
+        method: input.method ?? "CASH",
+        transactionId: input.transactionId ?? null,
+        feeSnapshotPaise: shop.registrationFeePaise,
+        paidAt: input.paidAt ?? new Date(),
+        note: input.note ?? null,
+        receiptUrl: input.receiptUrl ?? null,
+        recordedBy: actor.id,
+      })
+      .returning();
 
     const settlement = await recomputeShopSettlement(tx, shop.id);
 
@@ -207,19 +209,22 @@ export async function reversePayment(
       .limit(1);
     if (alreadyReversed) throw conflict("That payment has already been reversed.");
 
-    const [reversal] = await insertReturning(tx, shopPayments, {
-      reference: await nextReference(tx),
-      shopId: original.shopId,
-      ownerId: original.ownerId,
-      paymentType: "REVERSAL",
-      amountPaise: -original.amountPaise,
-      method: original.method,
-      transactionId: original.transactionId,
-      feeSnapshotPaise: original.feeSnapshotPaise,
-      note: reason,
-      reversalOfId: original.id,
-      recordedBy: actor.id,
-    });
+    const [reversal] = await tx
+      .insert(shopPayments)
+      .values({
+        reference: await nextReference(tx),
+        shopId: original.shopId,
+        ownerId: original.ownerId,
+        paymentType: "REVERSAL",
+        amountPaise: -original.amountPaise,
+        method: original.method,
+        transactionId: original.transactionId,
+        feeSnapshotPaise: original.feeSnapshotPaise,
+        note: reason,
+        reversalOfId: original.id,
+        recordedBy: actor.id,
+      })
+      .returning();
 
     const settlement = await recomputeShopSettlement(tx, original.shopId);
 
@@ -283,19 +288,19 @@ export async function getRegistrationFeeReport(): Promise<{
 }> {
   const [totals] = await db
     .select({
-      totalShops: sql<number>`COUNT(*)`,
-      expectedPaise: sql<number>`CAST(COALESCE(SUM(${shops.registrationFeePaise}), 0) AS SIGNED)`,
-      collectedPaise: sql<number>`CAST(COALESCE(SUM(${shops.amountPaidPaise}), 0) AS SIGNED)`,
-      fullyPaid: sql<number>`COUNT(CASE WHEN ${shops.feePaymentStatus} = 'PAID' THEN 1 END)`,
-      partiallyPaid: sql<number>`COUNT(CASE WHEN ${shops.feePaymentStatus} = 'PARTIALLY_PAID' THEN 1 END)`,
-      unpaid: sql<number>`COUNT(CASE WHEN ${shops.feePaymentStatus} = 'PENDING' THEN 1 END)`,
+      totalShops: sql<number>`COUNT(*)::int`,
+      expectedPaise: sql<number>`COALESCE(SUM(${shops.registrationFeePaise}), 0)::bigint`,
+      collectedPaise: sql<number>`COALESCE(SUM(${shops.amountPaidPaise}), 0)::bigint`,
+      fullyPaid: sql<number>`COUNT(*) FILTER (WHERE ${shops.feePaymentStatus} = 'PAID')::int`,
+      partiallyPaid: sql<number>`COUNT(*) FILTER (WHERE ${shops.feePaymentStatus} = 'PARTIALLY_PAID')::int`,
+      unpaid: sql<number>`COUNT(*) FILTER (WHERE ${shops.feePaymentStatus} = 'PENDING')::int`,
     })
     .from(shops)
     .where(isNull(shops.deletedAt));
 
   const [refunds] = await db
     .select({
-      refundedPaise: sql<number>`CAST(COALESCE(SUM(ABS(${shopPayments.amountPaise})), 0) AS SIGNED)`,
+      refundedPaise: sql<number>`COALESCE(SUM(ABS(${shopPayments.amountPaise})), 0)::bigint`,
     })
     .from(shopPayments)
     .where(eq(shopPayments.paymentType, "REFUND"));
