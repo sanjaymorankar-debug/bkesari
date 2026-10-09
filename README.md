@@ -9,7 +9,7 @@
 > | | this repo (`bkesari`) | [`GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari) |
 > |---|---|---|
 > | Serves | `bkesari.com`, `dev.bkesari.com` (under `/milk`) | `gokesari.com`, `test.gokesari.com` |
-> | Database | MySQL 8 | PostgreSQL 16 |
+> | Database | PostgreSQL 16 (MySQL 8 until the move back, see below) | PostgreSQL 16 |
 > | Commits | 44 | 273 |
 > | Files under `src/` | 219 | 649 |
 > | Commits not in the other | **18** | 239 |
@@ -19,14 +19,16 @@
 > They share a root commit, and until 2026-10-02 this repo was a strict subset of
 > `GoKesari` — every commit here was already there, including *"Rebrand Bkesari to
 > GoKesari"*. PR #8 restored Bkesari branding here, #11 moved the admin list into
-> `PERMANENT_ADMIN_EMAILS`, and #9 ported this app to MySQL, so the two now differ
-> on brand, contact addresses and database engine alike. **The two databases can
-> no longer be shared even in principle:** the migration histories diverged and
-> the engines differ.
+> `PERMANENT_ADMIN_EMAILS`, and #9 ported this app to MySQL. It has since moved
+> back to PostgreSQL as its final database, so both repos run the same engine
+> again — but **the two databases still cannot be shared:** this repo's
+> migration history was reset to a fresh PostgreSQL baseline
+> (`drizzle/0000_postgres_baseline.sql`), so the histories have diverged even
+> where the tables look alike.
 >
 > `GoKesari` remains far ahead on features — 430 more files under `src/`. Porting
 > anything between them means taking the hunk, not the file: a whole-file copy
-> drags the other brand's addresses, or the other engine's SQL, across with it.
+> drags the other brand's addresses, or the other repo's migrations, across with it.
 >
 > Re-check the divergence at any time with:
 >
@@ -48,7 +50,7 @@ rationale and [DEPLOYMENT.md](./DEPLOYMENT.md) for going live.
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS v4 ·
-MySQL 8 · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
+PostgreSQL 16 (node-postgres) · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
 Vitest · Playwright
 
 > Drizzle is used instead of Prisma. The reason is documented in
@@ -57,13 +59,18 @@ Vitest · Playwright
 ## Quick start
 
 ```bash
-# 1. MySQL 8 (8.0.16+ — the schema relies on CHECK constraints)
-#    macOS:  brew install mysql@8.0 && brew services start mysql@8.0
-mysql -uroot -e "CREATE DATABASE dairy_bakery      CHARACTER SET utf8mb4;
-                 CREATE DATABASE dairy_bakery_test CHARACTER SET utf8mb4;"
+# 1. PostgreSQL 16 (14+ works). Any of:
+#    macOS:   brew install postgresql@16 && brew services start postgresql@16
+#    Docker:  docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16
+createdb dairy_bakery
+createdb dairy_bakery_test
+#    (with Docker: docker exec pg createdb -U postgres dairy_bakery, and the same
+#     for dairy_bakery_test)
 
 # 2. Configure
-cp .env.example .env      # then fill in the values (see below)
+cp .env.example .env      # then fill in the values (see below), e.g.
+#    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dairy_bakery
+#    TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
 
 # 3. Schema + reference data
 npm install
@@ -73,7 +80,7 @@ npm run db:seed           # add --minimal for reference data only
 # 4. The test database needs the schema too. db:migrate applies to whichever
 #    database your .env points at, so override it once for the test one.
 #    Write the URL out: `$TEST_DATABASE_URL` lives in .env, not your shell.
-DATABASE_URL=mysql://root@localhost:3306/dairy_bakery_test npm run db:migrate
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dairy_bakery_test npm run db:migrate
 
 # 5. Run
 npm run dev               # http://localhost:3000
@@ -101,7 +108,8 @@ Dairy Farm) so the online/offline rule is visible immediately.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | yes | MySQL connection string, e.g. `mysql://root@localhost:3306/dairy_bakery` |
+| `DATABASE_URL` | yes | PostgreSQL connection string, e.g. `postgresql://postgres:postgres@localhost:5432/dairy_bakery`. Managed providers need `?sslmode=require` on the end. A non-PostgreSQL URL is rejected at startup. (Alternatively leave it blank and set `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASS`/`DB_SSLMODE`.) |
+| `DATABASE_POOL_MAX` | no | Connection-pool ceiling per process, default `10`. Keep it under your PostgreSQL plan's connection limit |
 | `TEST_DATABASE_URL` | tests | Separate database for integration tests. `tests/setup.ts` points the app's connection at it, so the suite never touches development data |
 | `AUTH_SECRET` | yes | Auth.js session encryption. Generate with `openssl rand -base64 32` |
 | `AUTH_URL` | prod | Canonical app URL, e.g. `https://bkesari.com` (locally `http://localhost:3000`) |
@@ -183,11 +191,11 @@ automatically the next day.
 ## Testing
 
 ```bash
-npm test                                    # 281 unit + integration tests
+npm test                                    # 285 unit + integration tests
 CHROMIUM_PATH=/path/to/chrome npm run test:e2e   # 10 E2E tests, desktop + mobile
 ```
 
-Integration tests run against real MySQL, which is the point: the
+Integration tests run against real PostgreSQL, which is the point: the
 concurrency, idempotency and constraint guarantees below cannot be proven
 against a mock.
 
