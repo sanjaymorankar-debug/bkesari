@@ -10,7 +10,7 @@
  *     request (network retry, double-clicked button, replayed webhook, re-run
  *     cron) finds the existing transaction and returns it unchanged instead of
  *     applying the amount twice.
- *  3. **CHECK constraint.** `balance_paise >= 0` is enforced by MySQL, so
+ *  3. **CHECK constraint.** `balance_paise >= 0` is enforced by PostgreSQL, so
  *     even a logic bug cannot persist a negative balance.
  *
  * READ COMMITTED is deliberate: `FOR UPDATE` already provides the needed
@@ -22,7 +22,6 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { isUniqueViolation } from "@/lib/errors";
 import { insufficientBalance, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
-import { insertReturning, updateReturning } from "@/server/db/returning";
 import {
   walletTransactions,
   wallets,
@@ -94,7 +93,7 @@ export async function getOrCreateWallet(
   });
   if (existing) return existing;
 
-  await client.insert(wallets).values({ userId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
+  await client.insert(wallets).values({ userId }).onConflictDoNothing();
 
   const created = await client.query.wallets.findFirst({
     where: eq(wallets.userId, userId),
@@ -127,14 +126,14 @@ export async function listTransactions(
 export async function todaysDeductionPaise(userId: string): Promise<number> {
   const [row] = await db
     .select({
-      total: sql<number>`CAST(COALESCE(-SUM(${walletTransactions.amountPaise}), 0) AS SIGNED)`,
+      total: sql<number>`COALESCE(-SUM(${walletTransactions.amountPaise}), 0)::bigint`,
     })
     .from(walletTransactions)
     .where(
       and(
         eq(walletTransactions.userId, userId),
         sql`${walletTransactions.amountPaise} < 0`,
-        sql`${walletTransactions.createdAt} >= CURDATE()`,
+        sql`${walletTransactions.createdAt} >= date_trunc('day', now())`,
       ),
     );
   return Number(row?.total ?? 0);
@@ -233,22 +232,25 @@ export async function applyWalletMutation(
       })
       .where(eq(wallets.id, locked.id));
 
-    const [transaction] = await insertReturning(tx, walletTransactions, {
-      walletId: locked.id,
-      userId: mutation.userId,
-      type: mutation.type,
-      amountPaise: signedAmount,
-      promotionalAmountPaise: signedPromotionalAmount,
-      previousBalancePaise: previousBalance,
-      newBalancePaise: newBalance,
-      orderId: mutation.orderId ?? null,
-      subscriptionId: mutation.subscriptionId ?? null,
-      paymentId: mutation.paymentId ?? null,
-      voucherRedemptionId: mutation.voucherRedemptionId ?? null,
-      idempotencyKey: mutation.idempotencyKey,
-      description: mutation.description,
-      createdBy: mutation.createdBy ?? null,
-    });
+    const [transaction] = await tx
+      .insert(walletTransactions)
+      .values({
+        walletId: locked.id,
+        userId: mutation.userId,
+        type: mutation.type,
+        amountPaise: signedAmount,
+        promotionalAmountPaise: signedPromotionalAmount,
+        previousBalancePaise: previousBalance,
+        newBalancePaise: newBalance,
+        orderId: mutation.orderId ?? null,
+        subscriptionId: mutation.subscriptionId ?? null,
+        paymentId: mutation.paymentId ?? null,
+        voucherRedemptionId: mutation.voucherRedemptionId ?? null,
+        idempotencyKey: mutation.idempotencyKey,
+        description: mutation.description,
+        createdBy: mutation.createdBy ?? null,
+      })
+      .returning();
 
     return {
       transaction,
@@ -344,7 +346,11 @@ export async function updateWalletSettings(
     }
   }
 
-  const [updated] = await updateReturning(db, wallets, { ...settings, updatedAt: new Date() }, eq(wallets.userId, userId));
+  const [updated] = await db
+    .update(wallets)
+    .set({ ...settings, updatedAt: new Date() })
+    .where(eq(wallets.userId, userId))
+    .returning();
 
   if (!updated) throw notFound("Wallet");
   return updated;

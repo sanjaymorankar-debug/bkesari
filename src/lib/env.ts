@@ -103,7 +103,7 @@ const serverEnvSchema = z.object({
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
 /**
- * Builds a mysql:// URL from the discrete `DB_*` variables, or returns
+ * Builds a postgresql:// URL from the discrete `DB_*` variables, or returns
  * undefined when the essential ones are missing so that the schema reports the
  * absence of DATABASE_URL rather than producing a half-formed URL.
  */
@@ -114,12 +114,12 @@ function composeDatabaseUrl(
   const user = raw.DB_USER;
   if (!name || !user) return undefined;
   const host = raw.DB_HOST ?? "localhost";
-  const port = raw.DB_PORT ?? "3306";
+  const port = raw.DB_PORT ?? "5432";
   // The password routinely contains characters that are not URL-safe.
   const credentials = raw.DB_PASS
     ? `${encodeURIComponent(user)}:${encodeURIComponent(raw.DB_PASS)}`
     : encodeURIComponent(user);
-  return `mysql://${credentials}@${host}:${port}/${name}`;
+  return `postgresql://${credentials}@${host}:${port}/${encodeURIComponent(name)}`;
 }
 
 let cached: ServerEnv | null = null;
@@ -143,10 +143,10 @@ export function getEnv(): ServerEnv {
     raw.BASE_URL = undefined;
   }
 
-  // Hostinger's hPanel issues database credentials as separate fields, and the
-  // deployment brief specifies a .env in that shape. The driver wants one URL,
-  // so it is composed here when not supplied directly — both styles of .env
-  // work, and a full DATABASE_URL still wins if both are present.
+  // Hosting panels commonly issue database credentials as separate fields, and
+  // .env.example accepts a .env in that shape. The driver wants one URL, so it
+  // is composed here when not supplied directly — both styles of .env work, and
+  // a full DATABASE_URL still wins if both are present.
   raw.DATABASE_URL ??= composeDatabaseUrl(raw);
 
   const parsed = serverEnvSchema.safeParse(raw);
