@@ -1,49 +1,61 @@
 # Deployment
 
-Targets Hostinger Node.js Web App Hosting (which auto-detects Next.js and runs
-`npm run build` / `npm start`), but nothing here is Hostinger-specific — any
-Node 20+ host with a **MySQL 8.0.16+** database works. (8.0.16 is where MySQL
-began enforcing `CHECK` constraints, which the schema relies on.)
+The app is a Node 20+ Next.js server backed by **PostgreSQL** (13 or newer; CI
+and `database/schema.sql` use 16). It does not run on MySQL or MariaDB.
+
+> **⚠️ The deploy target needs a PostgreSQL database.** The app tier can stay on
+> Hostinger Node.js Web App Hosting (which auto-detects Next.js and runs
+> `npm run build` / `npm start`), but Hostinger *shared* hosting provides only
+> MySQL — its hPanel databases and phpMyAdmin cannot host this schema. Before the
+> next deploy, each tier needs a PostgreSQL database reachable from the app
+> server — a VPS you run PostgreSQL on, or a managed PostgreSQL provider — and
+> the server's `.env` must carry its `DATABASE_URL`. The dev deploy workflow
+> refuses to publish to a server whose `.env` still points at MySQL.
+>
+> The MySQL databases the app used before (`u879099820_main_milk_*`) are not
+> migrated by anything in this repository. For dev, starting from an empty
+> PostgreSQL database plus `npm run db:seed` is usually right. If any tier holds
+> data that must survive, export it from MySQL and load it into the migrated
+> PostgreSQL schema before switching that tier over, and verify the wallet
+> ledger with the integrity queries in §7 afterwards.
 
 For the dev tier this is automated: pushing to `dev` deploys through
 `.github/workflows/deploy-dev.yml`. See `DEPLOY.md` in the `bkesari-platform`
 repository, Part 6, for the one-time secret setup. Everything below is the
 manual procedure, and is still what test and production use.
 
-## 1. Provision MySQL
+## 1. Provision PostgreSQL
 
-On Hostinger, hPanel → Databases → MySQL Databases creates the database and its
-user together, and the host is `localhost`. Each tier gets its **own** database
-and never connects to another's:
+Each tier gets its **own** database and never connects to another's.
 
-| Tier | Database |
-|---|---|
-| dev | `u879099820_main_milk_dev` |
-| test | `u879099820_main_milk_test` (not created yet) |
-| production | `u879099820_main_milk_prod` (not created yet) |
-
-Database names are case-sensitive on Linux — match hPanel exactly.
-
-Elsewhere, create the database and a dedicated application user by hand. Do
-**not** use `root` for the app:
+Create the database and a dedicated application user that owns it. Do **not**
+use a superuser for the app:
 
 ```sql
-CREATE DATABASE dairy_bakery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'dairy_app'@'localhost' IDENTIFIED BY '<strong-password>';
-GRANT ALL PRIVILEGES ON dairy_bakery.* TO 'dairy_app'@'localhost';
-FLUSH PRIVILEGES;
+CREATE USER dairy_app WITH PASSWORD '<strong-password>';
+CREATE DATABASE dairy_bakery OWNER dairy_app;
 ```
 
-Fill in `DB_HOST`, `DB_NAME`, `DB_USER` and `DB_PASS` in the server's `.env`
-(see `.env.example`), or give the whole connection string at once:
+Making the app user the database owner is what lets it create the schema's
+tables, types and sequences: since PostgreSQL 15, `GRANT ALL ON DATABASE` alone
+no longer grants `CREATE` on the `public` schema. A managed provider usually
+creates the database and an owning user for you.
+
+Put the connection string in the server's `.env` (see `.env.example`), or give
+the parts as `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASS`:
 
 ```
-DATABASE_URL=mysql://dairy_app:<password>@localhost:3306/dairy_bakery
+DATABASE_URL=postgresql://dairy_app:<password>@<host>:5432/dairy_bakery?sslmode=require
 ```
 
-On Hostinger the database is local and the connection does not cross a network,
-so no TLS is used. Against a managed provider that requires TLS, add `?ssl=true`
-— the connection code reads that flag rather than assuming either way.
+Require TLS whenever the connection crosses a network: `?sslmode=require`
+encrypts and verifies the server certificate, and `?sslmode=no-verify` encrypts
+without verifying, for a provider whose CA is not in Node's trust store. Omit
+`sslmode` only when the database is on the same machine. Percent-encode any
+URL-unsafe characters in the password.
+
+`gen_random_uuid()`, which every primary key defaults to, is built in from
+PostgreSQL 13, so no extension is needed.
 
 ## 2. Configure environment variables
 
@@ -52,7 +64,7 @@ Set these in the host's environment-variable UI — never commit them.
 ```bash
 NODE_ENV=production
 APP_ENV=prod
-DATABASE_URL=mysql://dairy_app:...@localhost:3306/dairy_bakery
+DATABASE_URL=postgresql://dairy_app:...@<host>:5432/dairy_bakery?sslmode=require
 
 AUTH_SECRET=<openssl rand -base64 32>
 AUTH_URL=https://your-domain.com
@@ -110,12 +122,20 @@ Cashfree sandbox keys on staging so no real money moves.
 
 ## 4. Run migrations
 
-Migrations are plain SQL under `drizzle/` and are not run automatically.
+Migrations are plain SQL under `drizzle/`, generated by drizzle-kit, and are
+not run automatically.
 
 ```bash
 npm run db:migrate                 # apply pending migrations
 npm run db:seed -- --minimal       # reference data only — first deploy
 ```
+
+`db:migrate` records what it applied in `drizzle.__drizzle_migrations`, so it
+must be the way every tier gets its schema. `database/schema.sql` is the same
+schema as plain SQL (`pg_dump --schema-only`, regenerated by
+`scripts/dump-schema.sh`) for review, or for bootstrapping a database where the
+migrator cannot run — but a database built from it is not tracked by the
+migrator, which would then try to create everything again.
 
 Use `--minimal` in production: it seeds roles, permissions and the dairy/bakery
 catalogue, but **not** the demo shops.
@@ -186,27 +206,23 @@ correct for local development but must never reach production — confirm
 Wallet balances are money. Treat the database accordingly.
 
 ```bash
-# Nightly logical backup, 30-day retention. --single-transaction keeps the dump
-# consistent without locking the site out, and routines/triggers/events are not
-# included by default.
-0 2 * * * mysqldump --single-transaction --quick --routines --triggers --events \
-  -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  | gzip > /backups/dairy_$(date +\%F).sql.gz && \
-  find /backups -name 'dairy_*.sql.gz' -mtime +30 -delete
+# Nightly logical backup, 30-day retention. pg_dump takes a consistent snapshot
+# without blocking writers; the custom format (-Fc) is compressed and restores
+# selectively.
+0 2 * * * pg_dump "$DATABASE_URL" -Fc \
+  -f /backups/dairy_$(date +\%F).dump && \
+  find /backups -name 'dairy_*.dump' -mtime +30 -delete
 ```
 
-Restore with:
+Restore into an empty database with:
 
 ```bash
-gunzip -c /backups/dairy_<date>.sql.gz \
-  | mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+pg_restore --no-owner --dbname "$DATABASE_URL" /backups/dairy_<date>.dump
 ```
 
-On Hostinger, hPanel → Files → Backups also takes database snapshots, and
-phpMyAdmin → Export produces the same kind of dump through the browser if you
-have no shell.
+Use a `pg_dump` of the same major version as the server, or newer.
 
-- Enable point-in-time recovery (binary logging) if the provider offers it.
+- Enable point-in-time recovery (WAL archiving) if the provider offers it.
 - Store backups off-host.
 - **Restore-test quarterly.** An untested backup is a hypothesis, not a backup.
 
@@ -237,7 +253,7 @@ Watch, at minimum:
 | `subscription_orders` with `WALLET_INSUFFICIENT` | Customers needing a top-up |
 | 5xx rate on `/api/checkout` and `/api/wallet/*` | Money paths |
 | Wallet-vs-ledger drift (query above) | Financial integrity |
-| Database connection pool saturation | `max: 20` in production |
+| Database connection pool saturation | `DATABASE_POOL_MAX` (default 10) per app instance, against the provider's connection limit |
 | Shops stuck in `PENDING_APPROVAL` | Operator SLA |
 
 Application logs go to stdout. The audit log (`audit_logs`) records every
@@ -276,7 +292,7 @@ Rollback checklist:
 ## 10. Pre-launch checklist
 
 - [ ] `AUTH_SECRET` and `CRON_SECRET` are freshly generated, not the dev defaults
-- [ ] The database user is not `root`, and this tier points at its **own** database
+- [ ] The database is PostgreSQL, the app's user is not a superuser, and this tier points at its **own** database
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
 - [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once

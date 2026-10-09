@@ -117,8 +117,8 @@ npm install
 
 export DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require"
 
-npm run db:migrate              # creates all 28 tables
-npm run db:seed -- --minimal    # roles, permissions, dairy + bakery catalogue
+npm run db:migrate              # creates all 48 tables
+npm run db:seed -- --minimal    # roles, permissions, the standard catalogue
 ```
 
 `--minimal` seeds reference data only. Drop the flag on staging if you want the
@@ -131,7 +131,7 @@ npm run db:seed                 # adds demo shops and products
 Verify:
 
 ```bash
-psql "$DATABASE_URL" -c "SELECT count(*) FROM products;"   # expect 40
+psql "$DATABASE_URL" -c "SELECT count(*) FROM products;"   # expect 373
 ```
 
 ---
