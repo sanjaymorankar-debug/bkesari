@@ -1,28 +1,32 @@
-> ## ⚠️ This repo and `GoKesari` are the same app, diverging
+> ## ⚠️ This repo and `GoKesari` are two separate brands now
 >
-> There are two repositories for this application and **work in one is invisible
-> to the other**. Verified against both `main` branches:
+> There are two repositories sharing an ancestor, and **work in one is invisible
+> to the other**. As of 2026-10-08 the owner's decision is that they are
+> deliberately separate: no code, content or database change to `*.bkesari.com`
+> should affect `*.gokesari.com`, or the reverse. Verified against both `main`
+> branches:
 >
 > | | this repo (`bkesari`) | [`GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari) |
 > |---|---|---|
-> | Commits | 30 | 84 |
-> | Files under `src/` | 217 | 492 |
-> | Commits not in the other | **4** | 58 |
-> | Branding in `src/` | `Bkesari` ×8, `bkesari.com` ×2 | `GoKesari` ×89, `gokesari.com` ×4 |
-> | `CNAME` | `test.bkesari.com` | `test.bkesari.com` |
+> | Serves | `bkesari.com`, `dev.bkesari.com` (under `/milk`) | `gokesari.com`, `test.gokesari.com` |
+> | Database | MySQL 8 | PostgreSQL 16 |
+> | Commits | 44 | 273 |
+> | Files under `src/` | 219 | 649 |
+> | Commits not in the other | **18** | 239 |
+> | Branding in `src/` | `Bkesari` ×3, `bkesari.com` ×3 | `GoKesari` ×55, `gokesari.com` ×12 |
+> | `CNAME` | `test.bkesari.com` | `test.gokesari.com` |
 >
 > They share a root commit, and until 2026-10-02 this repo was a strict subset of
 > `GoKesari` — every commit here was already there, including *"Rebrand Bkesari to
-> GoKesari"*. That is no longer true: PR #8 **restored Bkesari branding** here, so
-> the two now differ deliberately on brand, and this repo carries 4 commits of its
-> own.
+> GoKesari"*. PR #8 restored Bkesari branding here, #11 moved the admin list into
+> `PERMANENT_ADMIN_EMAILS`, and #9 ported this app to MySQL, so the two now differ
+> on brand, contact addresses and database engine alike. **The two databases can
+> no longer be shared even in principle:** the migration histories diverged and
+> the engines differ.
 >
-> `GoKesari` remains far ahead on features — 275 more files under `src/`.
->
-> **Both `CNAME` files say `test.bkesari.com`**, so they also disagree about which
-> one owns that hostname. Which repo is canonical, and whether `Bkesari` and
-> `GoKesari` are meant to be two brands of one codebase or one product that got
-> renamed, is a decision for the owner — this note only records the measurements.
+> `GoKesari` remains far ahead on features — 430 more files under `src/`. Porting
+> anything between them means taking the hunk, not the file: a whole-file copy
+> drags the other brand's addresses, or the other engine's SQL, across with it.
 >
 > Re-check the divergence at any time with:
 >
@@ -44,7 +48,7 @@ rationale and [DEPLOYMENT.md](./DEPLOYMENT.md) for going live.
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS v4 ·
-PostgreSQL 16 · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
+MySQL 8 · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
 Vitest · Playwright
 
 > Drizzle is used instead of Prisma. The reason is documented in
@@ -53,20 +57,37 @@ Vitest · Playwright
 ## Quick start
 
 ```bash
-# 1. PostgreSQL
-createdb dairy_bakery
-createdb dairy_bakery_test
+# 1. MySQL 8 (8.0.16+ — the schema relies on CHECK constraints)
+#    macOS:  brew install mysql@8.0 && brew services start mysql@8.0
+mysql -uroot -e "CREATE DATABASE dairy_bakery      CHARACTER SET utf8mb4;
+                 CREATE DATABASE dairy_bakery_test CHARACTER SET utf8mb4;"
 
 # 2. Configure
 cp .env.example .env      # then fill in the values (see below)
 
 # 3. Schema + reference data
 npm install
-npm run db:migrate
+npm run db:migrate        # applies to DATABASE_URL
 npm run db:seed           # add --minimal for reference data only
 
-# 4. Run
+# 4. The test database needs the schema too. db:migrate applies to whichever
+#    database your .env points at, so override it once for the test one.
+#    Write the URL out: `$TEST_DATABASE_URL` lives in .env, not your shell.
+DATABASE_URL=mysql://root@localhost:3306/dairy_bakery_test npm run db:migrate
+
+# 5. Run
 npm run dev               # http://localhost:3000
+```
+
+`.env.example` is written for the **dev server**, where this app is served under
+`/milk` behind the hub at bkesari.com. Running it on your own machine, override
+three values or the app will reference `/milk/_next/...` assets that nothing
+serves locally:
+
+```
+BASE_PATH=                      # empty: served from the root of localhost
+BASE_URL=http://localhost:3000
+AUTH_URL=http://localhost:3000
 ```
 
 Sign in at `/signin`. In development an email-only form is available (disabled
@@ -80,10 +101,10 @@ Dairy Farm) so the online/offline rule is visible immediately.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | yes | PostgreSQL connection string |
-| `TEST_DATABASE_URL` | tests | Separate database for integration tests |
+| `DATABASE_URL` | yes | MySQL connection string, e.g. `mysql://root@localhost:3306/dairy_bakery` |
+| `TEST_DATABASE_URL` | tests | Separate database for integration tests. `tests/setup.ts` points the app's connection at it, so the suite never touches development data |
 | `AUTH_SECRET` | yes | Auth.js session encryption. Generate with `openssl rand -base64 32` |
-| `AUTH_URL` | prod | Canonical app URL, e.g. `https://bkesari.com` |
+| `AUTH_URL` | prod | Canonical app URL, e.g. `https://bkesari.com` (locally `http://localhost:3000`) |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | prod | Google OAuth client. Without these, Google sign-in is hidden |
 | `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` | prod | Payment gateway. Without these the app runs in MOCK payment mode |
 | `CASHFREE_ENV` | no | `sandbox` (default) or `production` |
@@ -162,11 +183,11 @@ automatically the next day.
 ## Testing
 
 ```bash
-npm test                                    # 80 unit + integration tests
+npm test                                    # 281 unit + integration tests
 CHROMIUM_PATH=/path/to/chrome npm run test:e2e   # 10 E2E tests, desktop + mobile
 ```
 
-Integration tests run against real PostgreSQL, which is the point: the
+Integration tests run against real MySQL, which is the point: the
 concurrency, idempotency and constraint guarantees below cannot be proven
 against a mock.
 

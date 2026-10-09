@@ -1,15 +1,25 @@
 /**
  * Applies pending SQL migrations from ./drizzle.
- * Run with: npm run db:migrate  (uses DATABASE_URL)
+ *
+ * Run with: npm run db:migrate
+ *
+ * The connection comes from getEnv(), not process.env, so this resolves the
+ * database exactly as the application does: either a whole DATABASE_URL, or
+ * the discrete DB_* fields that hPanel issues and that .env.example tells you
+ * to fill in. Reading process.env.DATABASE_URL directly meant a .env in the
+ * documented DB_* shape ran the app and `db:seed` fine but failed here with
+ * "DATABASE_URL is not set". An explicit DATABASE_URL on the command line
+ * still wins, which is how CI points this at its test database.
  */
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/mysql2";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import mysql from "mysql2/promise";
 
+import { getEnv } from "@/lib/env";
+
 async function main() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+  const url = getEnv().DATABASE_URL;
 
   // Hostinger's MySQL is local and unencrypted; a managed provider that needs
   // TLS says so with `?ssl=true`, so the flag is read rather than assumed.
