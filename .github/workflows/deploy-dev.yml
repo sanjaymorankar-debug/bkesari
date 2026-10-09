@@ -28,19 +28,23 @@ env:
 
 jobs:
   # The same suite ci.yml runs, so the build that gets published is one that
-  # passed its tests against a real MySQL.
+  # passed its tests against a real PostgreSQL.
   check:
     runs-on: ubuntu-latest
 
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        # PostgreSQL 16, matching what local development and the docs target.
+        # Pulled via AWS's public mirror of the Docker Official Image because
+        # Docker Hub's anonymous pull rate limit has failed CI runs.
+        image: public.ecr.aws/docker/library/postgres:16
         env:
-          MYSQL_ROOT_PASSWORD: mysql
-          MYSQL_DATABASE: dairy_bakery_test
-        ports: ["3306:3306"]
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dairy_bakery_test
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -umysql -pmysql || mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-cmd="pg_isready -h 127.0.0.1 -U postgres -d dairy_bakery_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -48,8 +52,8 @@ jobs:
     env:
       # A throwaway CI database. Nothing here reaches any real tier: the dev,
       # test and production credentials live only in each server's own .env.
-      DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
-      TEST_DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
       CRON_SECRET: ci-only-cron-secret
 
@@ -111,7 +115,7 @@ jobs:
           # time, so all three must be present or `next build` dies collecting
           # page data — none of them is connected to or used at runtime, which
           # comes from the server's own .env.
-          DATABASE_URL: mysql://build:build@127.0.0.1:3306/build
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
           AUTH_SECRET: build-only-not-used-at-runtime
           CRON_SECRET: build-only-not-used-at-runtime
           APP_ENV: dev
@@ -209,13 +213,10 @@ jobs:
           REMOTE
 
       # Migrations are NOT applied automatically. Schema changes on this estate
-      # are reviewed and applied through phpMyAdmin (or by running
-      # `npm run db:migrate` over SSH), so a deploy can never alter a database
-      # on its own. This step only tells you whether this push brought any.
-      # Migrations are NOT applied automatically. Schema changes on this estate
-      # are reviewed and applied through phpMyAdmin (or by running
-      # `npm run db:migrate` over SSH), so a deploy can never alter a
-      # database on its own. This step only reports what the push brought.
+      # are reviewed and applied by hand (`npm run db:migrate` over SSH, or the
+      # migration SQL run with psql / the PostgreSQL provider's SQL console), so
+      # a deploy can never alter a database on its own. This step only reports
+      # what the push brought.
       - name: Report migrations included in this deploy
         env:
           # The branch head before this push. Empty on a manual run.
