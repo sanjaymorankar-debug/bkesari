@@ -11,6 +11,8 @@ import { forbidden, notFound, unauthenticated } from "@/lib/errors";
 import { auth } from "@/server/auth";
 import { db } from "@/server/db";
 import { shops, subscriptions, type UserRole } from "@/server/db/schema";
+import { entitled } from "@/server/sso/bkesari-sso";
+import { currentSso, linkLocalUser } from "@/server/sso/session";
 import { can, type Permission } from "./permissions";
 
 export interface AuthenticatedUser {
@@ -21,8 +23,27 @@ export interface AuthenticatedUser {
   role: UserRole;
 }
 
-/** Returns the signed-in user, or null. Never throws. */
+/**
+ * Returns the signed-in user, or null. Never throws.
+ *
+ * With central login configured (src/server/sso), a bkesari.com session that
+ * includes MILK_DAIRY is the signed-in user. A central session without it
+ * signs nobody in here, and BKESARI_SSO_ENFORCE ignores this app's own
+ * Auth.js session altogether. Unconfigured, it is Auth.js as before.
+ */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
+  const sso = await currentSso().catch(() => ({ cfg: null, identity: null }));
+  if (sso.cfg) {
+    if (sso.identity && entitled(sso.identity)) {
+      const record = await linkLocalUser(sso.identity).catch((error) => {
+        console.error("[bkesari-sso] could not link the local user", error);
+        return null;
+      });
+      if (!record || record.status !== "ACTIVE") return null;
+      return { id: record.id, email: record.email, name: record.name ?? null, image: record.image ?? null, role: record.role };
+    }
+    if (sso.identity || sso.cfg.enforce) return null;
+  }
   const session = await auth();
   if (!session?.user?.id) return null;
   if (session.user.status !== "ACTIVE") return null;
@@ -35,11 +56,18 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   };
 }
 
-/** Throws UNAUTHENTICATED if there is no active session. */
+/**
+ * Throws UNAUTHENTICATED if there is no active session, and FORBIDDEN when the
+ * visitor is signed in at bkesari.com but not subscribed to Milk & Dairy.
+ */
 export async function requireUser(): Promise<AuthenticatedUser> {
   const user = await getCurrentUser();
-  if (!user) throw unauthenticated();
-  return user;
+  if (user) return user;
+  const sso = await currentSso().catch(() => ({ cfg: null, identity: null }));
+  if (sso.identity && !entitled(sso.identity)) {
+    throw forbidden("Your bkesari account does not include Milk & Dairy yet. Request access at bkesari.com.");
+  }
+  throw unauthenticated();
 }
 
 /** Throws FORBIDDEN if the signed-in user's role lacks the capability. */
