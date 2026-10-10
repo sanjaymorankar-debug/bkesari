@@ -52,8 +52,9 @@ DATABASE_URL=postgresql://dairy_app:<password>@db.example.com:5432/dairy_bakery?
 
 or leave it blank and fill in `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
 `DB_PASS` and `DB_SSLMODE` instead. Managed providers require TLS — keep
-`?sslmode=require` (or `DB_SSLMODE=require`); node-postgres reads it from the
-URL. Only a database on the same machine or a private network should run
+`?sslmode=require` (or `DB_SSLMODE=require`), which connects over TLS and
+verifies the server certificate (`sslmode=no-verify` skips that check for a
+provider whose CA Node does not trust). Only a database on the same machine or a private network should run
 without it. Characters such as `@ : / # ?` in a password must be
 percent-encoded inside `DATABASE_URL` (the `DB_*` fields need no encoding).
 
