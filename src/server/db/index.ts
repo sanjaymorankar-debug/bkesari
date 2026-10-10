@@ -3,6 +3,7 @@ import pg from "pg";
 
 import { getEnv } from "@/lib/env";
 import * as schema from "./schema";
+import { pgConnectionOptions } from "./ssl";
 
 /**
  * int8 (bigint) arrives from node-postgres as a string by default. Money is
@@ -35,10 +36,10 @@ function createPool() {
   const env = getEnv();
 
   return new pg.Pool({
-    // TLS comes from the URL itself: managed providers (Neon, Supabase, RDS)
-    // advertise `?sslmode=require`, which node-postgres reads directly, while a
-    // local server needs nothing.
-    connectionString: env.DATABASE_URL,
+    // TLS comes from the URL: managed providers (Neon, Supabase, RDS)
+    // advertise `?sslmode=require`, while a local server needs nothing. See
+    // ./ssl for why the mode is turned into an explicit option.
+    ...pgConnectionOptions(env.DATABASE_URL),
     // Managed providers cap connections far below a self-hosted server — Neon's
     // free tier allows well under 100 — so the ceiling is configurable rather
     // than hard-coded.

@@ -17,12 +17,13 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
 import { getEnv } from "@/lib/env";
+import { pgConnectionOptions } from "./ssl";
 
 async function main() {
-  // TLS, if the server requires it, is requested in the URL (`?sslmode=require`)
-  // and read by node-postgres, so the same script works against localhost and
-  // against a managed provider.
-  const client = new pg.Client({ connectionString: getEnv().DATABASE_URL });
+  // TLS, if the server requires it, is requested in the URL (`?sslmode=require`),
+  // so the same script works against localhost and against a managed provider.
+  // Resolved exactly as the application's pool does it; see ./ssl.
+  const client = new pg.Client(pgConnectionOptions(getEnv().DATABASE_URL));
   await client.connect();
   try {
     await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
