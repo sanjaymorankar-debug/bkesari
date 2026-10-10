@@ -152,6 +152,32 @@ jobs:
           # 65002 is Hostinger's SSH port; DEV_SSH_PORT overrides it.
           echo "SSH_CMD=ssh -i $HOME/.ssh/id_deploy -p ${DEPLOY_PORT:-65002} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
 
+      # This build speaks only PostgreSQL. A server whose .env still points at
+      # MySQL would take the upload and restart into a site that cannot reach
+      # its database, so the .env is checked first — read-only, and without
+      # printing any value from it.
+      - name: Refuse a server not configured for PostgreSQL
+        run: |
+          set -euo pipefail
+          $SSH_CMD "$DEPLOY_USER@$DEPLOY_HOST" 'bash -seuo pipefail' <<REMOTE
+          cd '$DEPLOY_DIR'
+          if [ ! -f .env ]; then
+            echo "::error::No .env in the deploy directory. Create it from .env.example with a PostgreSQL DATABASE_URL first."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]*DATABASE_URL=["'"'"']?mysql' .env \
+             || grep -Eq '^[[:space:]]*DB_PORT=["'"'"']?3306' .env; then
+            echo "::error::The server .env still points at MySQL. This app now needs a PostgreSQL database — see DEPLOYMENT.md."
+            exit 1
+          fi
+          if ! grep -Eq '^[[:space:]]*DATABASE_URL=["'"'"']?postgres(ql)?://' .env \
+             && ! grep -Eq '^[[:space:]]*DB_NAME=.' .env; then
+            echo "::error::The server .env has no PostgreSQL DATABASE_URL (or DB_* fields). See DEPLOYMENT.md."
+            exit 1
+          fi
+          echo "Server .env is configured for PostgreSQL."
+          REMOTE
+
       - name: Upload
         run: |
           set -euo pipefail
