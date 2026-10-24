@@ -16,7 +16,7 @@ manual procedure, and is still what test and production use.
 
 ## 1. Provision PostgreSQL on Neon
 
-One Neon project, one branch per tier. On every branch the database is named
+Its own Neon project, `bkesari-milk` (Singapore), one branch per tier. On every branch the database is named
 `bk_milk` and is owned by the role `bk_milk_app`:
 
 | Neon branch | Serves | That server's `.env` holds |

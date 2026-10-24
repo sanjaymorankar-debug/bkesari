@@ -70,7 +70,12 @@ createdb -O milk_scratch milk_scratch_test   # suite: npm test
 ```
 
 (The container this spec was measured in used role `t_milk` and databases
-`t_milk` and `t_milk_test`. CI uses `postgres` and `dairy_bakery_test`.)
+`t_milk` and `t_milk_test`. CI uses `postgres` and `dairy_bakery_test`. In the
+fourth run the container's server was back to its stock settings: it served the
+self-signed snakeoil certificate, which names only `localhost`, so the direct
+URL used host `localhost` with that certificate added to the
+`NODE_EXTRA_CA_CERTS` bundle. The shared PgBouncer on 6432 could not log in the
+role, so a private one with the same settings ran on 6433.)
 
 **Env vars.** The suite reads them from the shell or `.env`. Prefer the shell:
 never put a hosted URL in a `.env` you test with.
@@ -209,28 +214,32 @@ branch was `claude/fervent-bell-wcmmdu`. The first run is the tree as merged
 at `591fadf` (#16 plus the testing framework). The second adds that run's fixes
 and the tests they brought, committed as `f0b074e`. The third, the same day,
 adds the `clientKey` fix (MILK-CR-19) with 13 unit tests and one smoke check, and
-the cron route checking its token before it counts (2 integration tests);
-**the third run's counts are the baseline**. The first two columns are history.
+the cron route checking its token before it counts (2 integration tests).
+The fourth, the same day on `cd65166`, upgrades `next` and `eslint-config-next`
+from 16.3.1 to 16.4.3 (the critical advisories) and takes the in-range audit
+fixes (`zod` 4.6.7, `sharp` 0.35.5, `source-map-js` 1.2.2, `brace-expansion`,
+`js-yaml`); no product code changed. **The fourth run's counts are the
+baseline**. The first three columns are history.
 
-| Level | First run (591fadf as merged) | Second run (591fadf + fixes = f0b074e) | Third run (f0b074e + `clientKey` and cron-order fixes, baseline) |
-|---|---|---|---|
-| S1a typecheck | pass, 25 s | pass, 22 s | pass, 9 s |
-| S1b lint | 0 errors, 2 warnings (`src/app/api/shop-products/[id]/route.ts:88-89`), 23 s | 0 errors, 2 warnings (the same two), 23 s | 0 errors, 2 warnings (the same two), 15 s |
-| S1c schema drift | not run | "No schema changes", `drizzle/` unchanged, 3 s | "No schema changes", `drizzle/` unchanged, 2 s |
-| S1d migrate twice | pass | pass, 2 s | pass, 1 s |
-| S2 unit | not run separately | 6 files, 50 tests, 50 passed, 0 skipped, 10 s | 7 files, 63 tests, 63 passed, 0 skipped, 7 s |
-| S3 integration | not run separately | 28 files, 263 tests, 263 passed, 0 skipped, 148 s | 29 files, 265 tests, 265 passed, 0 skipped, 96 s |
-| R1 `npm test` | 30 files, 296 tests, 296 passed, 0 skipped, 114 s | 34 files, 313 tests, 313 passed, 0 skipped, 124 s | **36 files, 328 tests, 328 passed, 0 skipped**, 106 s |
-| S4 build (`BASE_PATH=/milk`) | pass, 51 s | pass, 31 s | pass, 16 s |
-| S5 + S6a smoke | not available (no script); by hand, `/api/shops` and the home, shops and search pages leaked private shop columns | 26 passed, 0 failed, 0 skipped, 1 s | 27 passed, 0 failed, 0 skipped, 2 s (and 27 again on the same server) |
-| S6b hygiene | nothing tracked, no secrets | nothing tracked, no secrets | nothing tracked, no secrets |
-| S6c `npm audit --omit=dev` | 7 advisories: 1 critical (`next` 16.3.1), 4 high (`zod`, `sharp`, `source-map-js`, `brace-expansion`), 2 moderate (`exceljs`, `uuid`) | the same 7 (report only) | the same 7 (report only) |
-| S7 E2E | 8 passed, 2 failed (the stale top-up step) | 10 passed, 0 failed, 45 s | 10 passed, 0 failed, 47 s |
-| N2 migrations over direct TLS | failed without `AUTH_SECRET` and `CRON_SECRET` | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK |
-| N3 suite through the pooler | not run | 34 files, 313 passed, 0 skipped, 145 s | 36 files, 328 passed, 0 skipped, 124 s |
-| N4 smoke on the pooled URL | not run | 26 passed | 27 passed |
-| N5 terminate idle connections | the pool had no `error` listener: a terminated idle client was an unhandled error | pooled: 5 terminated, server alive, 200, smoke 26/26; direct: 14 terminated, server alive, 200, smoke 26/26, 10 `connection closed by the server` lines | pooled: 7 terminated, server alive, 200, smoke 27/27; direct: 15 terminated, server alive, 200, smoke 27/27, 10 `connection closed by the server` lines |
-| guard.test.sh | 32 passed | 32 passed | 32 passed |
+| Level | First run (591fadf as merged) | Second run (591fadf + fixes = f0b074e) | Third run (f0b074e + `clientKey` and cron-order fixes) | Fourth run (cd65166 + Next 16.4.3 and in-range audit fixes, baseline) |
+|---|---|---|---|---|
+| S1a typecheck | pass, 25 s | pass, 22 s | pass, 9 s | pass, 29 s |
+| S1b lint | 0 errors, 2 warnings (`src/app/api/shop-products/[id]/route.ts:88-89`), 23 s | 0 errors, 2 warnings (the same two), 23 s | 0 errors, 2 warnings (the same two), 15 s | 0 errors, 2 warnings (the same two), 24 s |
+| S1c schema drift | not run | "No schema changes", `drizzle/` unchanged, 3 s | "No schema changes", `drizzle/` unchanged, 2 s | "No schema changes", `drizzle/` unchanged, 2 s |
+| S1d migrate twice | pass | pass, 2 s | pass, 1 s | pass, 1 s |
+| S2 unit | not run separately | 6 files, 50 tests, 50 passed, 0 skipped, 10 s | 7 files, 63 tests, 63 passed, 0 skipped, 7 s | 7 files, 63 tests, 63 passed, 0 skipped, 11 s |
+| S3 integration | not run separately | 28 files, 263 tests, 263 passed, 0 skipped, 148 s | 29 files, 265 tests, 265 passed, 0 skipped, 96 s | 29 files, 265 tests, 265 passed, 0 skipped, 125 s |
+| R1 `npm test` | 30 files, 296 tests, 296 passed, 0 skipped, 114 s | 34 files, 313 tests, 313 passed, 0 skipped, 124 s | **36 files, 328 tests, 328 passed, 0 skipped**, 106 s | **36 files, 328 tests, 328 passed, 0 skipped**, 126 s |
+| S4 build (`BASE_PATH=/milk`) | pass, 51 s | pass, 31 s | pass, 16 s | pass on Next 16.4.3, no warnings, 47 s |
+| S5 + S6a smoke | not available (no script); by hand, `/api/shops` and the home, shops and search pages leaked private shop columns | 26 passed, 0 failed, 0 skipped, 1 s | 27 passed, 0 failed, 0 skipped, 2 s (and 27 again on the same server) | 27 passed, 0 failed, 0 skipped, 1 s (and 27 again on the same server) |
+| S6b hygiene | nothing tracked, no secrets | nothing tracked, no secrets | nothing tracked, no secrets | nothing tracked, no secrets |
+| S6c `npm audit --omit=dev` | 7 advisories: 1 critical (`next` 16.3.1), 4 high (`zod`, `sharp`, `source-map-js`, `brace-expansion`), 2 moderate (`exceljs`, `uuid`) | the same 7 (report only) | the same 7 (report only) | 2 moderate (`exceljs`, `uuid`; the fix is the breaking `exceljs@3.4.0`), no high or critical |
+| S7 E2E | 8 passed, 2 failed (the stale top-up step) | 10 passed, 0 failed, 45 s | 10 passed, 0 failed, 47 s | 10 passed, 0 failed, 80 s |
+| N2 migrations over direct TLS | failed without `AUTH_SECRET` and `CRON_SECRET` | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK |
+| N3 suite through the pooler | not run | 34 files, 313 passed, 0 skipped, 145 s | 36 files, 328 passed, 0 skipped, 124 s | 36 files, 328 passed, 0 skipped, 132 s |
+| N4 smoke on the pooled URL | not run | 26 passed | 27 passed | 27 passed |
+| N5 terminate idle connections | the pool had no `error` listener: a terminated idle client was an unhandled error | pooled: 5 terminated, server alive, 200, smoke 26/26; direct: 14 terminated, server alive, 200, smoke 26/26, 10 `connection closed by the server` lines | pooled: 7 terminated, server alive, 200, smoke 27/27; direct: 15 terminated, server alive, 200, smoke 27/27, 10 `connection closed by the server` lines | pooled: 5 terminated, server alive, 200, smoke 27/27; direct: 16 terminated, server alive, 200, smoke 27/27, 10 `connection closed by the server` lines |
+| guard.test.sh | 32 passed | 32 passed | 32 passed | 32 passed |
 
 No skips are expected anywhere. Before the move to PostgreSQL, the suite on
 MySQL 8.0.46 was 28 files and 284 tests, and took 591 s.
@@ -261,7 +270,7 @@ The agent may fix on its own, with a test that fails without the fix: product
 code under `src/`, tests whose expectation the code's documented behaviour
 proves wrong (with the evidence in the report), test fixtures, `scripts/`, the
 docs, and `.env.example`. It reports instead of fixing: dependency upgrades
-beyond the declared range (for example `next`, pinned at `16.3.1`), anything
+beyond the declared range (for example `next`, pinned at `16.4.3`), anything
 that needs a real Neon branch, Hostinger, Cashfree or Google, schema changes
 that need a new migration, and workflow changes beyond comments and notes.
 
@@ -341,5 +350,11 @@ VERDICT: PASS | FAIL | BLOCKED
   only on a live deploy (DEPLOYMENT.md §2, "Trusted proxies"). The tests model
   the chain as `<forged>, <visitor>, <proxy>`; the smoke check sends it to
   `next start` directly, with a loopback hop at the end.
+- **`npm audit fix` crashes under npm 10.9.4.** Arborist fails in `#loadPeerSet`
+  with "Cannot read properties of null (reading 'edgesOut')" whenever it would
+  move `vite` or `vitest` (rolldown's peer set). It crashes on `cd65166`'s lockfile
+  too. The other in-range fixes go in with `npm update <package>`. npm 11
+  (`npx npm@11 audit fix`) completes, but it rewrites lockfile metadata that CI's
+  npm 10 would then read.
 - **No load tests, no accessibility audit, no visual checks.** Rate limiting is
   in-process and not tested across instances.
