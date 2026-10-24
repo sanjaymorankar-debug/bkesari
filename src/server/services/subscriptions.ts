@@ -47,7 +47,6 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { generateOrderNumber } from "./orders";
 import { applyWalletMutation } from "./wallet";
 
-import { insertReturning, updateReturning, upsertReturning } from "@/server/db/returning";
 /* ------------------------------------------------- pure schedule engine */
 
 export interface ScheduleInput {
@@ -211,21 +210,28 @@ export async function createSubscription(
     throw conflict("This product cannot be subscribed to online right now.");
   }
 
-  const [subscription] = await insertReturning(db, subscriptions, {
-    userId: input.userId,
-    shopId: row.sp.shopId,
-    shopProductId: input.shopProductId,
-    addressId: input.addressId ?? null,
-    quantityMilli: input.quantityMilli,
-    frequency,
-    weekdays: input.weekdays ?? [],
-    startDate: input.startDate,
-    endDate: input.endDate ?? null,
-    status: "ACTIVE",
-  });
+  const [subscription] = await db
+    .insert(subscriptions)
+    .values({
+      userId: input.userId,
+      shopId: row.sp.shopId,
+      shopProductId: input.shopProductId,
+      addressId: input.addressId ?? null,
+      quantityMilli: input.quantityMilli,
+      frequency,
+      weekdays: input.weekdays ?? [],
+      startDate: input.startDate,
+      endDate: input.endDate ?? null,
+      status: "ACTIVE",
+    })
+    .returning();
 
   const next = nextDeliveryDate(toScheduleInput(subscription), input.startDate);
-  const [withNext] = await updateReturning(db, subscriptions, { nextDeliveryDate: next }, eq(subscriptions.id, subscription.id));
+  const [withNext] = await db
+    .update(subscriptions)
+    .set({ nextDeliveryDate: next })
+    .where(eq(subscriptions.id, subscription.id))
+    .returning();
 
   await recordAudit({
     actorId: input.userId,
@@ -277,17 +283,21 @@ export async function updateSubscription(
     throw validationFailed("Quantity must be a positive amount.");
   }
 
-  const [updated] = await updateReturning(db, subscriptions, {
-    ...(patch.quantityMilli !== undefined
-      ? { quantityMilli: patch.quantityMilli }
-      : {}),
-    ...(patch.shopProductId ? { shopProductId: patch.shopProductId } : {}),
-    ...(patch.frequency ? { frequency: patch.frequency } : {}),
-    ...(patch.weekdays ? { weekdays: patch.weekdays } : {}),
-    ...(patch.addressId !== undefined ? { addressId: patch.addressId } : {}),
-    ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
-    updatedAt: new Date(),
-  }, eq(subscriptions.id, subscriptionId));
+  const [updated] = await db
+    .update(subscriptions)
+    .set({
+      ...(patch.quantityMilli !== undefined
+        ? { quantityMilli: patch.quantityMilli }
+        : {}),
+      ...(patch.shopProductId ? { shopProductId: patch.shopProductId } : {}),
+      ...(patch.frequency ? { frequency: patch.frequency } : {}),
+      ...(patch.weekdays ? { weekdays: patch.weekdays } : {}),
+      ...(patch.addressId !== undefined ? { addressId: patch.addressId } : {}),
+      ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(subscriptions.id, subscriptionId))
+    .returning();
 
   await refreshNextDeliveryDate(subscriptionId);
 
@@ -323,19 +333,23 @@ export async function setDailyOverride(
   }
   await assertDateIsModifiable(subscriptionId, date);
 
-  const [override] = await upsertReturning(db, subscriptionDailyOverrides, {
-    subscriptionId,
-    deliveryDate: date,
-    type: "QUANTITY",
-    quantityMilli,
-    createdBy: actor.id,
-  }, {
-    target: [
-      subscriptionDailyOverrides.subscriptionId,
-      subscriptionDailyOverrides.deliveryDate,
-    ],
-    set: { type: "QUANTITY", quantityMilli, updatedAt: new Date() },
-  });
+  const [override] = await db
+    .insert(subscriptionDailyOverrides)
+    .values({
+      subscriptionId,
+      deliveryDate: date,
+      type: "QUANTITY",
+      quantityMilli,
+      createdBy: actor.id,
+    })
+    .onConflictDoUpdate({
+      target: [
+        subscriptionDailyOverrides.subscriptionId,
+        subscriptionDailyOverrides.deliveryDate,
+      ],
+      set: { type: "QUANTITY", quantityMilli, updatedAt: new Date() },
+    })
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -356,19 +370,23 @@ export async function skipDate(
 ): Promise<SubscriptionDailyOverride> {
   await assertDateIsModifiable(subscriptionId, date);
 
-  const [override] = await upsertReturning(db, subscriptionDailyOverrides, {
-    subscriptionId,
-    deliveryDate: date,
-    type: "SKIP",
-    quantityMilli: null,
-    createdBy: actor.id,
-  }, {
-    target: [
-      subscriptionDailyOverrides.subscriptionId,
-      subscriptionDailyOverrides.deliveryDate,
-    ],
-    set: { type: "SKIP", quantityMilli: null, updatedAt: new Date() },
-  });
+  const [override] = await db
+    .insert(subscriptionDailyOverrides)
+    .values({
+      subscriptionId,
+      deliveryDate: date,
+      type: "SKIP",
+      quantityMilli: null,
+      createdBy: actor.id,
+    })
+    .onConflictDoUpdate({
+      target: [
+        subscriptionDailyOverrides.subscriptionId,
+        subscriptionDailyOverrides.deliveryDate,
+      ],
+      set: { type: "SKIP", quantityMilli: null, updatedAt: new Date() },
+    })
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -414,7 +432,11 @@ export async function pauseSubscription(
   if (until < from) {
     throw validationFailed("The pause end date must be on or after the start date.");
   }
-  const [updated] = await updateReturning(db, subscriptions, { pauseFrom: from, pauseUntil: until, updatedAt: new Date() }, eq(subscriptions.id, subscriptionId));
+  const [updated] = await db
+    .update(subscriptions)
+    .set({ pauseFrom: from, pauseUntil: until, updatedAt: new Date() })
+    .where(eq(subscriptions.id, subscriptionId))
+    .returning();
   if (!updated) throw notFound("Subscription");
 
   await refreshNextDeliveryDate(subscriptionId);
@@ -440,12 +462,16 @@ export async function resumeSubscription(
   subscriptionId: string,
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
-  const [updated] = await updateReturning(db, subscriptions, {
-    pauseFrom: null,
-    pauseUntil: null,
-    status: "ACTIVE",
-    updatedAt: new Date(),
-  }, eq(subscriptions.id, subscriptionId));
+  const [updated] = await db
+    .update(subscriptions)
+    .set({
+      pauseFrom: null,
+      pauseUntil: null,
+      status: "ACTIVE",
+      updatedAt: new Date(),
+    })
+    .where(eq(subscriptions.id, subscriptionId))
+    .returning();
   if (!updated) throw notFound("Subscription");
 
   await refreshNextDeliveryDate(subscriptionId);
@@ -464,13 +490,17 @@ export async function cancelSubscription(
   reason: string,
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
-  const [updated] = await updateReturning(db, subscriptions, {
-    status: "CANCELLED",
-    cancelledAt: new Date(),
-    cancellationReason: reason,
-    nextDeliveryDate: null,
-    updatedAt: new Date(),
-  }, eq(subscriptions.id, subscriptionId));
+  const [updated] = await db
+    .update(subscriptions)
+    .set({
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancellationReason: reason,
+      nextDeliveryDate: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(subscriptions.id, subscriptionId))
+    .returning();
   if (!updated) throw notFound("Subscription");
 
   await recordAudit({
@@ -913,19 +943,22 @@ async function generateOneDelivery(
 
   try {
     await db.transaction(async (tx) => {
-      const [order] = await insertReturning(tx, orders, {
-        orderNumber: generateOrderNumber(),
-        userId: subscription.userId,
-        shopId: subscription.shopId,
-        addressId: subscription.addressId,
-        status: "PENDING",
-        source: "SUBSCRIPTION",
-        subtotalPaise: totalPaise,
-        deliveryFeePaise: 0, // subscription deliveries are bundled
-        taxPaise: 0,
-        totalPaise,
-        deliveryDate: date,
-      });
+      const [order] = await tx
+        .insert(orders)
+        .values({
+          orderNumber: generateOrderNumber(),
+          userId: subscription.userId,
+          shopId: subscription.shopId,
+          addressId: subscription.addressId,
+          status: "PENDING",
+          source: "SUBSCRIPTION",
+          subtotalPaise: totalPaise,
+          deliveryFeePaise: 0, // subscription deliveries are bundled
+          taxPaise: 0,
+          totalPaise,
+          deliveryDate: date,
+        })
+        .returning();
 
       await tx.insert(orderItems).values({
         orderId: order.id,
@@ -1033,17 +1066,20 @@ async function recordWalletFailure(
   },
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    const [order] = await insertReturning(tx, orders, {
-      orderNumber: generateOrderNumber(),
-      userId: subscription.userId,
-      shopId: subscription.shopId,
-      addressId: subscription.addressId,
-      status: "WALLET_INSUFFICIENT",
-      source: "SUBSCRIPTION",
-      subtotalPaise: detail.totalPaise,
-      totalPaise: detail.totalPaise,
-      deliveryDate: date,
-    });
+    const [order] = await tx
+      .insert(orders)
+      .values({
+        orderNumber: generateOrderNumber(),
+        userId: subscription.userId,
+        shopId: subscription.shopId,
+        addressId: subscription.addressId,
+        status: "WALLET_INSUFFICIENT",
+        source: "SUBSCRIPTION",
+        subtotalPaise: detail.totalPaise,
+        totalPaise: detail.totalPaise,
+        deliveryDate: date,
+      })
+      .returning();
 
     await tx.insert(orderItems).values({
       orderId: order.id,
@@ -1263,7 +1299,7 @@ export async function countSubscriptionsByStatus(): Promise<
   const rows = await db
     .select({
       status: subscriptions.status,
-      count: sql<number>`count(*)`,
+      count: sql<number>`count(*)::int`,
     })
     .from(subscriptions)
     .groupBy(subscriptions.status);

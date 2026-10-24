@@ -111,14 +111,14 @@ export default async function AdminPage() {
     db
       .select({
         value: count(),
-        revenue: sql<number>`CAST(COALESCE(SUM(${orders.totalPaise}), 0) AS SIGNED)`,
+        revenue: sql<number>`COALESCE(SUM(${orders.totalPaise}), 0)::bigint`,
       })
       .from(orders)
       .where(eq(orders.status, "DELIVERED")),
     showFinancials
       ? db
           .select({
-            total: sql<number>`CAST(COALESCE(SUM(${wallets.balancePaise}), 0) AS SIGNED)`,
+            total: sql<number>`COALESCE(SUM(${wallets.balancePaise}), 0)::bigint`,
           })
           .from(wallets)
       : Promise.resolve([{ total: 0 }]),

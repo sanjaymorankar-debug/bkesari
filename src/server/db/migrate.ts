@@ -15,18 +15,19 @@
  *
  * The connection comes from getEnv(), not process.env, so this resolves the
  * database exactly as the application does: either a whole DATABASE_URL, or
- * the discrete DB_* fields that hPanel issues and that .env.example tells you
- * to fill in. Reading process.env.DATABASE_URL directly meant a .env in the
- * documented DB_* shape ran the app and `db:seed` fine but failed here with
- * "DATABASE_URL is not set". An explicit DATABASE_URL on the command line
- * still wins, which is how CI points this at its test database.
+ * the discrete DB_* fields that .env.example also allows. Reading
+ * process.env.DATABASE_URL directly meant a .env in the DB_* shape ran the app
+ * and `db:seed` fine but failed here with "DATABASE_URL is not set". An
+ * explicit DATABASE_URL on the command line still wins, which is how CI points
+ * this at its test database.
  */
 import "dotenv/config";
-import { drizzle } from "drizzle-orm/mysql2";
-import { migrate } from "drizzle-orm/mysql2/migrator";
-import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import pg from "pg";
 
 import { getEnv } from "@/lib/env";
+import { pgConnectionOptions } from "./ssl";
 
 async function main() {
   // getEnv() resolves DATABASE_URL or the discrete DB_* fields; TEST_DATABASE_URL
@@ -48,21 +49,17 @@ async function main() {
     url = getEnv().DATABASE_URL;
   }
 
-  // Hostinger's MySQL is local and unencrypted; a managed provider that needs
-  // TLS says so with `?ssl=true`, so the flag is read rather than assumed.
-  const ssl = new URL(url).searchParams.get("ssl");
-  const connection = await mysql.createConnection({
-    uri: url,
-    ssl: !ssl || ssl === "false" ? undefined : { rejectUnauthorized: true },
-    timezone: "Z",
-    multipleStatements: true,
-  });
+  // TLS, if the server requires it, is requested in the URL (`?sslmode=require`),
+  // so the same script works against localhost and against a managed provider.
+  // Resolved exactly as the application's pool does it; see ./ssl.
+  const client = new pg.Client(pgConnectionOptions(url));
+  await client.connect();
   try {
-    await migrate(drizzle(connection), { migrationsFolder: "./drizzle" });
+    await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
     // Name which database, so running both forms in a row is unambiguous.
     console.log(`Migrations applied to ${useTest ? "the test" : "the application"} database.`);
   } finally {
-    await connection.end();
+    await client.end();
   }
 }
 

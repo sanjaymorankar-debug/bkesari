@@ -22,7 +22,6 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-import { insertReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -116,13 +115,16 @@ export async function setRegistrationFee(
         .where(eq(registrationFees.id, previous.id));
     }
 
-    const [created] = await insertReturning(tx, registrationFees, {
-      amountPaise: input.amountPaise,
-      effectiveFrom,
-      isActive: true,
-      note: input.note ?? null,
-      createdBy: actor.id,
-    });
+    const [created] = await tx
+      .insert(registrationFees)
+      .values({
+        amountPaise: input.amountPaise,
+        effectiveFrom,
+        isActive: true,
+        note: input.note ?? null,
+        createdBy: actor.id,
+      })
+      .returning();
 
     await tx.insert(registrationFeeHistory).values({
       registrationFeeId: created.id,

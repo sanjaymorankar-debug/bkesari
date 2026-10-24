@@ -32,7 +32,6 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { updateShopProduct } from "./catalogue";
 
-import { insertReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -121,14 +120,17 @@ export async function submitPriceRequests(
 
     const source = sourceForRole(actor.role);
 
-    const [batch] = await insertReturning(tx, priceUpdateBatches, {
-      shopId: input.shopId,
-      source,
-      submittedBy: actor.id,
-      excelUploadId: input.excelUploadId ?? null,
-      status: "PENDING",
-      note: input.note ?? null,
-    });
+    const [batch] = await tx
+      .insert(priceUpdateBatches)
+      .values({
+        shopId: input.shopId,
+        source,
+        submittedBy: actor.id,
+        excelUploadId: input.excelUploadId ?? null,
+        status: "PENDING",
+        note: input.note ?? null,
+      })
+      .returning();
 
     const created: PriceUpdateRequest[] = [];
 
@@ -168,17 +170,20 @@ export async function submitPriceRequests(
           ),
         );
 
-      const [request] = await insertReturning(tx, priceUpdateRequests, {
-        batchId: batch.id,
-        shopId: input.shopId,
-        shopProductId: change.shopProductId,
-        priceType: change.priceType,
-        previousPricePaise: previous,
-        proposedPricePaise: change.proposedPricePaise,
-        status: "PENDING",
-        source,
-        submittedBy: actor.id,
-      });
+      const [request] = await tx
+        .insert(priceUpdateRequests)
+        .values({
+          batchId: batch.id,
+          shopId: input.shopId,
+          shopProductId: change.shopProductId,
+          priceType: change.priceType,
+          previousPricePaise: previous,
+          proposedPricePaise: change.proposedPricePaise,
+          status: "PENDING",
+          source,
+          submittedBy: actor.id,
+        })
+        .returning();
       created.push(request);
     }
 

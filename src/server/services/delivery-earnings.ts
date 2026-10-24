@@ -21,7 +21,6 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-import { insertReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -38,12 +37,15 @@ export async function getActiveEarningsConfig(): Promise<DeliveryEarningsConfig>
   });
   if (active) return active;
 
-  const [created] = await insertReturning(db, deliveryEarningsConfig, {
-    baseFeePaise: DEFAULT_BASE_FEE_PAISE,
-    perKmFeePaise: DEFAULT_PER_KM_FEE_PAISE,
-    isActive: true,
-    note: "Default (auto-created)",
-  });
+  const [created] = await db
+    .insert(deliveryEarningsConfig)
+    .values({
+      baseFeePaise: DEFAULT_BASE_FEE_PAISE,
+      perKmFeePaise: DEFAULT_PER_KM_FEE_PAISE,
+      isActive: true,
+      note: "Default (auto-created)",
+    })
+    .returning();
   return created;
 }
 
@@ -69,13 +71,16 @@ export async function setEarningsConfig(
         .where(eq(deliveryEarningsConfig.id, previous.id));
     }
 
-    const [created] = await insertReturning(tx, deliveryEarningsConfig, {
-      baseFeePaise: input.baseFeePaise,
-      perKmFeePaise: input.perKmFeePaise,
-      isActive: true,
-      note: input.note?.trim() || null,
-      createdBy: actor.id,
-    });
+    const [created] = await tx
+      .insert(deliveryEarningsConfig)
+      .values({
+        baseFeePaise: input.baseFeePaise,
+        perKmFeePaise: input.perKmFeePaise,
+        isActive: true,
+        note: input.note?.trim() || null,
+        createdBy: actor.id,
+      })
+      .returning();
 
     await recordAudit(
       {
@@ -117,13 +122,16 @@ export async function creditDeliveryEarnings(deliveryOrderId: string): Promise<D
   const totalPaise = config.baseFeePaise + distancePaise;
 
   try {
-    const [earning] = await insertReturning(db, deliveryPartnerEarnings, {
-      deliveryPartnerId: deliveryOrder.deliveryPartnerId,
-      deliveryOrderId,
-      basePaise: config.baseFeePaise,
-      distancePaise,
-      totalPaise,
-    });
+    const [earning] = await db
+      .insert(deliveryPartnerEarnings)
+      .values({
+        deliveryPartnerId: deliveryOrder.deliveryPartnerId,
+        deliveryOrderId,
+        basePaise: config.baseFeePaise,
+        distancePaise,
+        totalPaise,
+      })
+      .returning();
     return earning;
   } catch (error) {
     if (isUniqueViolation(error)) {

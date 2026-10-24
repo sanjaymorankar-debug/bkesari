@@ -11,7 +11,20 @@ const serverEnvSchema = z.object({
     .enum(["development", "test", "production"])
     .default("development"),
 
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  /**
+   * PostgreSQL connection string. Only the postgres:// and postgresql://
+   * schemes are accepted, so a .env still carrying a mysql:// URL from before
+   * the move to PostgreSQL fails at startup with a clear message rather than as
+   * an obscure driver error on the first query. TLS is configured in the URL
+   * itself (e.g. `?sslmode=require`, which managed providers expect).
+   */
+  DATABASE_URL: z
+    .string()
+    .min(1, "DATABASE_URL is required")
+    .regex(
+      /^postgres(?:ql)?:\/\//i,
+      "DATABASE_URL must be a PostgreSQL URL (postgresql://user:password@host:5432/dbname)",
+    ),
 
   /**
    * Connection pool ceiling. Managed providers cap concurrent connections
@@ -103,7 +116,7 @@ const serverEnvSchema = z.object({
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
 /**
- * Builds a mysql:// URL from the discrete `DB_*` variables, or returns
+ * Builds a postgresql:// URL from the discrete `DB_*` variables, or returns
  * undefined when the essential ones are missing so that the schema reports the
  * absence of DATABASE_URL rather than producing a half-formed URL.
  */
@@ -114,12 +127,16 @@ function composeDatabaseUrl(
   const user = raw.DB_USER;
   if (!name || !user) return undefined;
   const host = raw.DB_HOST ?? "localhost";
-  const port = raw.DB_PORT ?? "3306";
+  const port = raw.DB_PORT ?? "5432";
   // The password routinely contains characters that are not URL-safe.
   const credentials = raw.DB_PASS
     ? `${encodeURIComponent(user)}:${encodeURIComponent(raw.DB_PASS)}`
     : encodeURIComponent(user);
-  return `mysql://${credentials}@${host}:${port}/${name}`;
+  // Managed PostgreSQL providers require TLS; DB_SSLMODE=require says so.
+  const query = raw.DB_SSLMODE
+    ? `?sslmode=${encodeURIComponent(raw.DB_SSLMODE)}`
+    : "";
+  return `postgresql://${credentials}@${host}:${port}/${encodeURIComponent(name)}${query}`;
 }
 
 let cached: ServerEnv | null = null;
@@ -143,10 +160,11 @@ export function getEnv(): ServerEnv {
     raw.BASE_URL = undefined;
   }
 
-  // Hostinger's hPanel issues database credentials as separate fields, and the
-  // deployment brief specifies a .env in that shape. The driver wants one URL,
-  // so it is composed here when not supplied directly — both styles of .env
-  // work, and a full DATABASE_URL still wins if both are present.
+  // Hosting control panels usually issue database credentials as separate
+  // fields (host, port, name, user, password), and the deployment brief
+  // specifies a .env in that shape. The driver wants one URL, so it is composed
+  // here when not supplied directly — both styles of .env work, and a full
+  // DATABASE_URL still wins if both are present.
   raw.DATABASE_URL ??= composeDatabaseUrl(raw);
 
   const parsed = serverEnvSchema.safeParse(raw);

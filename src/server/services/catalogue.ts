@@ -7,7 +7,7 @@
  * on add-to-cart, at checkout, and on every subscription order generation.
  * Nothing bypasses it.
  */
-import { and, asc, desc, eq, like, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import {
   conflict,
@@ -34,8 +34,6 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-import { insertReturning, updateReturning, updateReturningIfChanged } from "@/server/db/returning";
-import { nextProductCode } from "@/server/db/sequences";
 /* ------------------------------------------------------------ categories */
 
 export async function listCategories(
@@ -70,7 +68,10 @@ export async function createCategory(
   });
   if (existing) throw conflict("A category with that name already exists.");
 
-  const [category] = await insertReturning(db, productCategories, { ...input, slug });
+  const [category] = await db
+    .insert(productCategories)
+    .values({ ...input, slug })
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -327,23 +328,25 @@ export async function createProductForShop(
   }
 
   const run = async (tx: DbClient) => {
-    const [product] = await insertReturning(tx, products, {
-      code: await nextProductCode(tx),
-      categoryId: input.categoryId,
-      name,
-      slug: uniqueSlug(name),
-      description: input.description ?? null,
-      specifications: input.specifications ?? null,
-      subCategory: input.subCategory ?? null,
-      imageUrl: input.imageUrl ?? null,
-      unit: input.unit.trim(),
-      unitSizeMilli: input.unitSizeMilli ?? 1000,
-      subscribable: input.subscribable ?? false,
-      // A SHOP_OWNER's product must not be discoverable by other shops until
-      // an admin publishes it; OPERATOR/ADMIN already hold that trust.
-      approvalStatus: actor.role === "SHOP_OWNER" ? "PENDING_APPROVAL" : "APPROVED",
-      createdBy: actor.id,
-    });
+    const [product] = await tx
+      .insert(products)
+      .values({
+        categoryId: input.categoryId,
+        name,
+        slug: uniqueSlug(name),
+        description: input.description ?? null,
+        specifications: input.specifications ?? null,
+        subCategory: input.subCategory ?? null,
+        imageUrl: input.imageUrl ?? null,
+        unit: input.unit.trim(),
+        unitSizeMilli: input.unitSizeMilli ?? 1000,
+        subscribable: input.subscribable ?? false,
+        // A SHOP_OWNER's product must not be discoverable by other shops until
+        // an admin publishes it; OPERATOR/ADMIN already hold that trust.
+        approvalStatus: actor.role === "SHOP_OWNER" ? "PENDING_APPROVAL" : "APPROVED",
+        createdBy: actor.id,
+      })
+      .returning();
 
     await recordAudit(
       {
@@ -362,22 +365,25 @@ export async function createProductForShop(
       tx,
     );
 
-    const [shopProduct] = await insertReturning(tx, shopProducts, {
-      shopId: input.shopId,
-      productId: product.id,
-      description: input.description ?? null,
-      imageUrl: input.imageUrl ?? null,
-      onlinePricePaise: applyPriceImmediately ? (input.onlinePricePaise ?? null) : null,
-      offlinePricePaise: applyPriceImmediately ? (input.offlinePricePaise ?? null) : null,
-      onlineSaleEnabled: applyPriceImmediately
-        ? (input.onlineSaleEnabled ?? false)
-        : false,
-      offlineSaleEnabled: applyPriceImmediately
-        ? (input.offlineSaleEnabled ?? false)
-        : false,
-      isActive: true,
-      isAvailable: input.isAvailable ?? true,
-    });
+    const [shopProduct] = await tx
+      .insert(shopProducts)
+      .values({
+        shopId: input.shopId,
+        productId: product.id,
+        description: input.description ?? null,
+        imageUrl: input.imageUrl ?? null,
+        onlinePricePaise: applyPriceImmediately ? (input.onlinePricePaise ?? null) : null,
+        offlinePricePaise: applyPriceImmediately ? (input.offlinePricePaise ?? null) : null,
+        onlineSaleEnabled: applyPriceImmediately
+          ? (input.onlineSaleEnabled ?? false)
+          : false,
+        offlineSaleEnabled: applyPriceImmediately
+          ? (input.offlineSaleEnabled ?? false)
+          : false,
+        isActive: true,
+        isAvailable: input.isAvailable ?? true,
+      })
+      .returning();
 
     await recordAudit(
       {
@@ -431,7 +437,11 @@ export async function approveProduct(
     throw conflict("This product has already been decided.");
   }
 
-  const [updated] = await updateReturning(db, products, { approvalStatus: "APPROVED", approvedBy: actor.id, approvedAt: new Date(), rejectionReason: null }, eq(products.id, productId));
+  const [updated] = await db
+    .update(products)
+    .set({ approvalStatus: "APPROVED", approvedBy: actor.id, approvedAt: new Date(), rejectionReason: null })
+    .where(eq(products.id, productId))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -458,12 +468,16 @@ export async function rejectProduct(
     throw conflict("This product has already been decided.");
   }
 
-  const [updated] = await updateReturning(db, products, {
-    approvalStatus: "REJECTED",
-    approvedBy: actor.id,
-    approvedAt: new Date(),
-    rejectionReason: reason,
-  }, eq(products.id, productId));
+  const [updated] = await db
+    .update(products)
+    .set({
+      approvalStatus: "REJECTED",
+      approvedBy: actor.id,
+      approvedAt: new Date(),
+      rejectionReason: reason,
+    })
+    .where(eq(products.id, productId))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -508,7 +522,7 @@ export async function countProductsByShop(
   const rows = await db
     .select({
       shopId: shopProducts.shopId,
-      count: sql<number>`COUNT(*)`,
+      count: sql<number>`COUNT(*)::int`,
     })
     .from(shopProducts)
     .where(and(inArray(shopProducts.shopId, [...shopIds]), isNull(shopProducts.deletedAt)))
@@ -608,21 +622,24 @@ export async function createShopProduct(
     throw conflict("This product is already in your shop's catalogue.");
   }
 
-  const [created] = await insertReturning(client, shopProducts, {
-    shopId: input.shopId,
-    productId: input.productId,
-    description: input.description ?? null,
-    imageUrl: input.imageUrl ?? null,
-    onlinePricePaise: input.onlinePricePaise ?? null,
-    offlinePricePaise: input.offlinePricePaise ?? null,
-    onlineSaleEnabled: input.onlineSaleEnabled,
-    offlineSaleEnabled: input.offlineSaleEnabled,
-    trackInventory: input.trackInventory ?? true,
-    onlineStock: input.onlineStock ?? 0,
-    offlineStock: input.offlineStock ?? 0,
-    isActive: input.isActive ?? true,
-    isAvailable: input.isAvailable ?? true,
-  });
+  const [created] = await client
+    .insert(shopProducts)
+    .values({
+      shopId: input.shopId,
+      productId: input.productId,
+      description: input.description ?? null,
+      imageUrl: input.imageUrl ?? null,
+      onlinePricePaise: input.onlinePricePaise ?? null,
+      offlinePricePaise: input.offlinePricePaise ?? null,
+      onlineSaleEnabled: input.onlineSaleEnabled,
+      offlineSaleEnabled: input.offlineSaleEnabled,
+      trackInventory: input.trackInventory ?? true,
+      onlineStock: input.onlineStock ?? 0,
+      offlineStock: input.offlineStock ?? 0,
+      isActive: input.isActive ?? true,
+      isAvailable: input.isAvailable ?? true,
+    })
+    .returning();
 
   await recordAudit(
     {
@@ -681,11 +698,15 @@ export async function updateShopProduct(
     };
     validatePricing(next);
 
-    const [updated] = await updateReturning(tx, shopProducts, {
-      ...patch,
-      ...next,
-      updatedAt: new Date(),
-    }, eq(shopProducts.id, shopProductId));
+    const [updated] = await tx
+      .update(shopProducts)
+      .set({
+        ...patch,
+        ...next,
+        updatedAt: new Date(),
+      })
+      .where(eq(shopProducts.id, shopProductId))
+      .returning();
 
     // Price history — one row per changed channel.
     const priceChanges: {
@@ -875,10 +896,10 @@ export async function listStorefrontProducts(options: {
     const term = `%${options.query}%`;
     conditions.push(
       or(
-        like(products.name, term),
-        like(productCategories.name, term),
-        like(shops.name, term),
-        like(shops.area, term),
+        ilike(products.name, term),
+        ilike(productCategories.name, term),
+        ilike(shops.name, term),
+        ilike(shops.area, term),
         eq(shops.pincode, options.query),
       )!,
     );
@@ -1056,13 +1077,19 @@ export async function consumeOnlineStock(
   if (!current) throw notFound("Product");
   if (!current.trackInventory) return;
 
-  const updated = await updateReturningIfChanged(client, shopProducts, {
-    onlineStock: sql`${shopProducts.onlineStock} - ${units}`,
-    updatedAt: new Date(),
-  }, and(
-      eq(shopProducts.id, shopProductId),
-      sql`${shopProducts.onlineStock} >= ${units}`,
-    ));
+  const updated = await client
+    .update(shopProducts)
+    .set({
+      onlineStock: sql`${shopProducts.onlineStock} - ${units}`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(shopProducts.id, shopProductId),
+        sql`${shopProducts.onlineStock} >= ${units}`,
+      ),
+    )
+    .returning();
 
   if (updated.length === 0) {
     throw outOfStock("This product is currently unavailable online.");
@@ -1096,10 +1123,14 @@ export async function restockOnline(
       .for("update");
     if (!current) throw notFound("Product");
 
-    const [updated] = await updateReturning(tx, shopProducts, {
-      onlineStock: current.onlineStock + units,
-      updatedAt: new Date(),
-    }, eq(shopProducts.id, shopProductId));
+    const [updated] = await tx
+      .update(shopProducts)
+      .set({
+        onlineStock: current.onlineStock + units,
+        updatedAt: new Date(),
+      })
+      .where(eq(shopProducts.id, shopProductId))
+      .returning();
 
     await tx.insert(inventoryMovements).values({
       shopProductId,
