@@ -5,63 +5,74 @@ local development use PostgreSQL 16). The app itself has so far been hosted on
 Hostinger Node.js Web App Hosting, which auto-detects Next.js and runs
 `npm run build` / `npm start`.
 
-> **Hostinger's shared and cloud web hosting does not provide PostgreSQL** —
-> hPanel only offers MySQL/MariaDB databases there. The app can keep running on
-> that hosting, but its database must live elsewhere: a managed PostgreSQL
-> service (for example Neon, Supabase or AWS RDS) or a VPS on which you run
-> PostgreSQL yourself. Choose a region close to the app server; every request
-> makes database round-trips. The provider-specific steps (creating the
-> database, allow-listing the app server's IP if the provider requires it) are
-> in that provider's own documentation.
+The database is **PostgreSQL on Neon**. Hostinger's shared and cloud web hosting
+offers only MySQL/MariaDB, so the app runs there and its database lives on Neon.
+Any other PostgreSQL 14+ works the same way (see the end of §1).
 
 For the dev tier this is automated: pushing to `dev` deploys through
 `.github/workflows/deploy-dev.yml`. See `DEPLOY.md` in the `bkesari-platform`
 repository, Part 6, for the one-time secret setup. Everything below is the
 manual procedure, and is still what test and production use.
 
-## 1. Provision PostgreSQL
+## 1. Provision PostgreSQL on Neon
 
-Each tier gets its **own** database (or, on providers that have them, its own
-branch) and never connects to another's:
+One Neon project, one branch per tier. On every branch the database is named
+`bk_milk` and is owned by the role `bk_milk_app`:
 
-| Tier | Database |
-|---|---|
-| dev | e.g. `milk_dev` |
-| test | e.g. `milk_test` |
-| production | e.g. `milk_prod` |
+| Neon branch | Serves | That server's `.env` holds |
+|---|---|---|
+| `production` | `bkesari.com/milk` | the production branch's two URLs, nothing else |
+| `test` | `test.bkesari.com/milk` | the test branch's two URLs, nothing else |
+| `dev` | `dev.bkesari.com/milk` | the dev branch's two URLs, nothing else |
 
-On a managed provider, create the database in its console and copy the
-connection string it shows. On a server you run yourself, create the database
-and a dedicated application role by hand. Do **not** use the `postgres`
-superuser for the app:
+A tier never connects to another tier's branch.
+
+Create the role and the database on each branch in the Neon console (the
+branch's Roles and Databases pages). Neon makes every role it creates a member
+of `neon_superuser`, so `bk_milk_app` can run the migrations, and could create an
+extension if a later migration needed one; none does today.
+
+Then open **Connect** on the branch, pick database `bk_milk` and role `bk_milk_app`,
+and copy the connection string twice:
+
+| "Connection pooling" | Goes in | Used for |
+|---|---|---|
+| on (the host has `-pooler` in it) | `DATABASE_URL` | the app at runtime |
+| off (the direct endpoint) | `DATABASE_URL_UNPOOLED` | `npm run db:migrate`, drizzle-kit, `pg_dump` |
+
+The pooled endpoint is PgBouncer in transaction mode: right for the app, whose
+work is short transactions, and wrong for DDL, session settings and long-lived
+single connections, which is why migrations go direct. With
+`DATABASE_URL_UNPOOLED` unset, migrations use `DATABASE_URL`, so a local
+database or CI needs only the one variable.
+
+Keep the `?sslmode=require&channel_binding=require` Neon puts on the end. The
+app turns `sslmode=require` into TLS with the server certificate verified
+(Neon's certificate is publicly trusted), and `channel_binding=require` into a
+SCRAM login bound to that TLS channel whenever the server offers it, which
+Neon's endpoints do. `sslmode=no-verify` skips the certificate check and exists
+only for a provider whose CA Node does not trust. Characters such as
+`@ : / # ?` in a password must be percent-encoded inside a URL.
+
+Neon suspends an idle compute and drops its connections. The app expects that:
+a dropped connection is logged as `[db] connection closed by the server`, a
+transaction caught by it fails on its own, the next query opens a new
+connection, and the 30-second connect timeout covers the compute's cold start. Keep `DATABASE_POOL_MAX` modest (the pooler accepts far
+more clients than the compute has connections).
+
+**Without Neon.** On a PostgreSQL server you run yourself, create the role and
+database by hand, and do **not** use the `postgres` superuser for the app:
 
 ```sql
-CREATE ROLE dairy_app LOGIN PASSWORD '<strong-password>';
-CREATE DATABASE dairy_bakery OWNER dairy_app;
+CREATE ROLE bk_milk_app LOGIN PASSWORD '<strong-password>';
+CREATE DATABASE bk_milk OWNER bk_milk_app;
 ```
 
-Owning the database lets the app's role run the migrations (which create types,
-sequences and tables in the `public` schema). On PostgreSQL 15+, a role that
-does not own the database also needs `GRANT CREATE ON SCHEMA public` to migrate.
-
-Put the connection string in the server's `.env` (see `.env.example`):
-
-```
-DATABASE_URL=postgresql://dairy_app:<password>@db.example.com:5432/dairy_bakery?sslmode=require
-```
-
-or leave it blank and fill in `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
-`DB_PASS` and `DB_SSLMODE` instead. Managed providers require TLS — keep
-`?sslmode=require` (or `DB_SSLMODE=require`), which connects over TLS and
-verifies the server certificate (`sslmode=no-verify` skips that check for a
-provider whose CA Node does not trust). Only a database on the same machine or a private network should run
-without it. Characters such as `@ : / # ?` in a password must be
-percent-encoded inside `DATABASE_URL` (the `DB_*` fields need no encoding).
-
-Keep `DATABASE_POOL_MAX` below the plan's connection limit, remembering that
-each app process (and each migration run) opens its own connections. If the
-provider offers a pooled (PgBouncer-style) endpoint as well as a direct one,
-run migrations over the **direct** endpoint.
+Owning the database lets the role run the migrations. Put its URL in
+`DATABASE_URL` (add `?sslmode=require` unless it is on the same machine or a
+private network), or fill in `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
+`DB_PASS` and `DB_SSLMODE` instead. If there is a pooler in front, give the
+direct address as `DATABASE_URL_UNPOOLED`.
 
 ## 2. Configure environment variables
 
@@ -70,10 +81,14 @@ Set these in the host's environment-variable UI — never commit them.
 ```bash
 NODE_ENV=production
 APP_ENV=prod
-DATABASE_URL=postgresql://dairy_app:...@db.example.com:5432/dairy_bakery?sslmode=require
+BASE_PATH=/milk
+BASE_URL=https://bkesari.com/milk
+DATABASE_URL=postgresql://bk_milk_app:<password>@<endpoint>-pooler.<region>.aws.neon.tech/bk_milk?sslmode=require&channel_binding=require
+DATABASE_URL_UNPOOLED=postgresql://bk_milk_app:<password>@<endpoint>.<region>.aws.neon.tech/bk_milk?sslmode=require&channel_binding=require
+DATABASE_POOL_MAX=5
 
 AUTH_SECRET=<openssl rand -base64 32>
-AUTH_URL=https://your-domain.com
+AUTH_URL=https://bkesari.com/milk
 
 AUTH_GOOGLE_ID=<google oauth client id>
 AUTH_GOOGLE_SECRET=<google oauth client secret>
@@ -128,17 +143,29 @@ Cashfree sandbox keys on staging so no real money moves.
 
 ## 4. Run migrations
 
-Migrations are plain SQL under `drizzle/` and are not run automatically. The
-history starts from a single PostgreSQL baseline,
+Migrations are plain SQL under `drizzle/` and are not run automatically, and
+not on the app server either: a deploy ships neither `src/` nor the dev
+dependencies the migrate script needs. Run them from a checkout, over the
+tier's **direct** URL. The history starts from a single PostgreSQL baseline,
 `drizzle/0000_postgres_baseline.sql`; `database/schema.sql` is the same schema
 as one psql-runnable file (regenerate it with `scripts/dump-schema.sh`). Apply
 one or the other to an empty database, not both — only `db:migrate` records
 what it applied, so later migrations can follow it.
 
 ```bash
-npm run db:migrate                 # apply pending migrations
-npm run db:seed -- --minimal       # reference data only — first deploy
+# Only this tier's direct URL is needed; no app secrets.
+DATABASE_URL_UNPOOLED='<the branch's direct URL>' npm run db:migrate
+# Prints "Migrations applied to the application database (DATABASE_URL_UNPOOLED)."
+
+# The seed runs through the app's own configuration, so it needs the pooled
+# URL and AUTH_SECRET/CRON_SECRET set (to anything; it uses neither).
+DATABASE_URL='<the branch's pooled URL>' AUTH_SECRET=x CRON_SECRET=x \
+  npm run db:seed -- --minimal     # reference data only — first deploy
 ```
+
+A variable set in the shell beats `.env`, and a `DATABASE_URL` set in the
+shell beats a `DATABASE_URL_UNPOOLED` from `.env`, so a command line always
+names the database it acts on.
 
 Use `--minimal` in production: it seeds roles, permissions and the dairy/bakery
 catalogue, but **not** the demo shops.
@@ -212,7 +239,7 @@ Wallet balances are money. Treat the database accordingly.
 # Nightly logical backup, 30-day retention. pg_dump takes a consistent snapshot
 # without locking the site out. -Fc is the compressed custom format pg_restore
 # reads. Use a pg_dump whose major version is >= the server's.
-0 2 * * * pg_dump -Fc "$DATABASE_URL" > /backups/dairy_$(date +\%F).dump && \
+0 2 * * * pg_dump -Fc "$DATABASE_URL_UNPOOLED" > /backups/dairy_$(date +\%F).dump && \
   find /backups -name 'dairy_*.dump' -mtime +30 -delete
 ```
 
@@ -222,8 +249,9 @@ Restore into an empty database with:
 pg_restore --no-owner --no-privileges -d "$RESTORE_DATABASE_URL" /backups/dairy_<date>.dump
 ```
 
-Managed providers also take their own automatic backups or snapshots; check the
-retention your plan gives you rather than relying on it blindly.
+`pg_dump` goes over the direct URL, not the pooler. Neon also keeps the
+branch's history for point-in-time restore; check the retention your plan
+gives you rather than relying on it blindly.
 
 - Enable point-in-time recovery (WAL archiving) if the provider offers it.
 - Store backups off-host.
@@ -300,7 +328,7 @@ Watch, at minimum:
 | `subscription_orders` with `WALLET_INSUFFICIENT` | Customers needing a top-up |
 | 5xx rate on `/api/checkout` and `/api/wallet/*` | Money paths |
 | Wallet-vs-ledger drift (query above) | Financial integrity |
-| Database connection pool saturation | `max: 20` in production |
+| Database connection pool saturation | `DATABASE_POOL_MAX` per app process |
 | Shops stuck in `PENDING_APPROVAL` | Operator SLA |
 
 Application logs go to stdout. The audit log (`audit_logs`) records every
@@ -339,8 +367,8 @@ Rollback checklist:
 ## 10. Pre-launch checklist
 
 - [ ] `AUTH_SECRET` and `CRON_SECRET` are freshly generated, not the dev defaults
-- [ ] The database role is not the `postgres` superuser, and this tier points at its **own** database
-- [ ] `DATABASE_URL` keeps `?sslmode=require` when the database is reached over a network
+- [ ] The database role is `bk_milk_app` (never a superuser), and this tier's `.env` holds only **its own** Neon branch's URLs
+- [ ] `DATABASE_URL` is the pooled URL and `DATABASE_URL_UNPOOLED` the direct one, both ending `?sslmode=require&channel_binding=require`
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
 - [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once

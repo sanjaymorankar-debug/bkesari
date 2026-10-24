@@ -6,25 +6,40 @@
  */
 import { z } from "zod";
 
+/**
+ * A PostgreSQL connection string. Only the postgres:// and postgresql://
+ * schemes are accepted, so a .env still carrying a mysql:// URL from before the
+ * move to PostgreSQL fails at startup with a clear message rather than as an
+ * obscure driver error on the first query. TLS is configured in the URL itself
+ * (e.g. `?sslmode=require`, which managed providers expect).
+ */
+function postgresUrl(name: string) {
+  return z
+    .string()
+    .min(1, `${name} is required`)
+    .regex(
+      /^postgres(?:ql)?:\/\//i,
+      `${name} must be a PostgreSQL URL (postgresql://user:password@host:5432/dbname)`,
+    );
+}
+
 const serverEnvSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
 
+  /** The connection string the app uses at runtime (on Neon, the pooled endpoint). */
+  DATABASE_URL: postgresUrl("DATABASE_URL"),
+
   /**
-   * PostgreSQL connection string. Only the postgres:// and postgresql://
-   * schemes are accepted, so a .env still carrying a mysql:// URL from before
-   * the move to PostgreSQL fails at startup with a clear message rather than as
-   * an obscure driver error on the first query. TLS is configured in the URL
-   * itself (e.g. `?sslmode=require`, which managed providers expect).
+   * The direct (unpooled) connection string, for migrations and other schema
+   * work. Neon gives every database a pooled endpoint (PgBouncer in
+   * transaction mode; its host has `-pooler` in it) and a direct one:
+   * DATABASE_URL holds the pooled one, which the app uses at runtime, and this
+   * holds the direct one. Unset, migrations use DATABASE_URL, so a local
+   * database or CI needs only one variable. See databaseUrlForMigrations().
    */
-  DATABASE_URL: z
-    .string()
-    .min(1, "DATABASE_URL is required")
-    .regex(
-      /^postgres(?:ql)?:\/\//i,
-      "DATABASE_URL must be a PostgreSQL URL (postgresql://user:password@host:5432/dbname)",
-    ),
+  DATABASE_URL_UNPOOLED: postgresUrl("DATABASE_URL_UNPOOLED").optional(),
 
   /**
    * Connection pool ceiling. Managed providers cap concurrent connections
@@ -141,16 +156,29 @@ function composeDatabaseUrl(
 
 let cached: ServerEnv | null = null;
 
-export function getEnv(): ServerEnv {
-  if (cached) return cached;
-
-  // Treat an empty variable (`FOO=` in a .env file) as unset. Otherwise an
-  // optional secret becomes "" rather than undefined, and `??` fallbacks
-  // silently fail to trigger.
+/**
+ * process.env with empty values (`FOO=` in a .env file) treated as unset.
+ * Otherwise an optional secret becomes "" rather than undefined, and `??`
+ * fallbacks silently fail to trigger.
+ */
+function readRawEnv(): Record<string, string | undefined> {
   const raw: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
     raw[key] = value === "" ? undefined : value;
   }
+  // Hosting control panels usually issue database credentials as separate
+  // fields (host, port, name, user, password), and the deployment brief
+  // specifies a .env in that shape. The driver wants one URL, so it is composed
+  // here when not supplied directly — both styles of .env work, and a full
+  // DATABASE_URL still wins if both are present.
+  raw.DATABASE_URL ??= composeDatabaseUrl(raw);
+  return raw;
+}
+
+export function getEnv(): ServerEnv {
+  if (cached) return cached;
+
+  const raw = readRawEnv();
 
   // Vite (and so Vitest) puts its own BASE_URL="/" into the process
   // environment, which is a base *path*, not the absolute origin meant here.
@@ -159,13 +187,6 @@ export function getEnv(): ServerEnv {
   if (raw.BASE_URL && !/^https?:\/\//i.test(raw.BASE_URL)) {
     raw.BASE_URL = undefined;
   }
-
-  // Hosting control panels usually issue database credentials as separate
-  // fields (host, port, name, user, password), and the deployment brief
-  // specifies a .env in that shape. The driver wants one URL, so it is composed
-  // here when not supplied directly — both styles of .env work, and a full
-  // DATABASE_URL still wins if both are present.
-  raw.DATABASE_URL ??= composeDatabaseUrl(raw);
 
   const parsed = serverEnvSchema.safeParse(raw);
   if (!parsed.success) {
@@ -176,6 +197,46 @@ export function getEnv(): ServerEnv {
   }
   cached = parsed.data;
   return cached;
+}
+
+/**
+ * The connection string for migrations and other schema work, and the name of
+ * the variable it came from.
+ *
+ * Normally the direct endpoint, DATABASE_URL_UNPOOLED, when one is configured,
+ * else DATABASE_URL: DDL and the migrator's own bookkeeping belong on a direct
+ * connection, not behind a transaction-mode pooler. One exception, because
+ * .env is loaded underneath whatever the shell already set: when the shell sets
+ * DATABASE_URL and not DATABASE_URL_UNPOOLED, the shell's DATABASE_URL wins,
+ * so `DATABASE_URL=... npm run db:migrate` migrates the database it names and
+ * never a direct URL that happens to sit in .env for another one. Pass the
+ * variables the shell set, read before .env was loaded, as `setInShell`.
+ *
+ * Validates only that variable, not the whole app configuration, so migrating
+ * a database needs its URL and nothing else — not the app's AUTH_SECRET and
+ * CRON_SECRET.
+ */
+export function databaseUrlForMigrations(
+  setInShell: ReadonlySet<string> = new Set(),
+): { variable: "DATABASE_URL_UNPOOLED" | "DATABASE_URL"; url: string } {
+  const raw = readRawEnv();
+  const shellNamesPooledOnly =
+    setInShell.has("DATABASE_URL") && !setInShell.has("DATABASE_URL_UNPOOLED");
+  const variable =
+    raw.DATABASE_URL_UNPOOLED && !shellNamesPooledOnly
+      ? "DATABASE_URL_UNPOOLED"
+      : "DATABASE_URL";
+  const value = raw[variable];
+  if (!value) {
+    throw new Error(
+      "Set DATABASE_URL_UNPOOLED (the direct connection string) or DATABASE_URL to migrate a database.",
+    );
+  }
+  const parsed = postgresUrl(variable).safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Invalid database configuration: ${parsed.error.issues[0].message}`);
+  }
+  return { variable, url: parsed.data };
 }
 
 /** True when real Cashfree credentials are configured. */

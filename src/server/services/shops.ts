@@ -675,10 +675,61 @@ export interface ShopSearchFilters {
   offset?: number;
 }
 
-/** Public shop search (§15). Only APPROVED shops are ever returned. */
+/**
+ * The columns of a shop that anyone may see.
+ *
+ * Public search hands its rows straight to anonymous visitors: as JSON from
+ * GET /api/shops, and serialised into the home, shops and search pages for
+ * their client components. The whole row also carries the owner's PAN
+ * (encrypted), its holder name and last four digits, the registration fee and
+ * what has been paid of it, referral and fee ids, the delivery pickup point and
+ * who verified what — so public search selects this allowlist instead. A new
+ * column stays private until it is added here.
+ */
+const PUBLIC_SHOP_COLUMNS = {
+  id: shops.id,
+  name: shops.name,
+  slug: shops.slug,
+  ownerName: shops.ownerName,
+  phone: shops.phone,
+  email: shops.email,
+  addressLine1: shops.addressLine1,
+  addressLine2: shops.addressLine2,
+  area: shops.area,
+  city: shops.city,
+  state: shops.state,
+  pincode: shops.pincode,
+  landmark: shops.landmark,
+  latitude: shops.latitude,
+  longitude: shops.longitude,
+  shopType: shops.shopType,
+  status: shops.status,
+  classification: shops.classification,
+  logoUrl: shops.logoUrl,
+  photos: shops.photos,
+  openingHours: shops.openingHours,
+  deliveryAvailable: shops.deliveryAvailable,
+  deliveryFeePaise: shops.deliveryFeePaise,
+  freeDeliveryAbovePaise: shops.freeDeliveryAbovePaise,
+  preparationTimeMinutes: shops.preparationTimeMinutes,
+  description: shops.description,
+  legalBusinessName: shops.legalBusinessName,
+  gstin: shops.gstin,
+  fssaiLicenseNumber: shops.fssaiLicenseNumber,
+  returnPolicyText: shops.returnPolicyText,
+  createdAt: shops.createdAt,
+  updatedAt: shops.updatedAt,
+};
+
+export type PublicShop = Pick<Shop, keyof typeof PUBLIC_SHOP_COLUMNS>;
+
+/**
+ * Public shop search (§15). Only APPROVED shops are ever returned, and only
+ * their public columns (see PUBLIC_SHOP_COLUMNS).
+ */
 export async function searchShops(
   filters: ShopSearchFilters = {},
-): Promise<Shop[]> {
+): Promise<PublicShop[]> {
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
@@ -709,7 +760,7 @@ export async function searchShops(
   }
 
   return db
-    .select()
+    .select(PUBLIC_SHOP_COLUMNS)
     .from(shops)
     .where(and(...conditions))
     .orderBy(asc(shops.name))

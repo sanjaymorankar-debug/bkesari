@@ -14,9 +14,27 @@ if (!testUrl) {
   );
 }
 
+// The suite TRUNCATEs every table between tests, so it only ever runs against a
+// database on this machine (or CI's service container on 127.0.0.1) — never a
+// hosted one such as a tier's Neon branch, whatever .env holds.
+const testHost = (() => {
+  try {
+    return new URL(testUrl).hostname.replace(/^\[|\]$/g, "");
+  } catch {
+    return "";
+  }
+})();
+if (!/^(localhost|127(?:\.\d{1,3}){3}|::1)$/.test(testHost)) {
+  throw new Error(
+    `TEST_DATABASE_URL must point at a database on this machine (localhost, 127.0.0.1 or ::1), not ${JSON.stringify(testHost)}: the suite erases every table.`,
+  );
+}
+
 // NODE_ENV is typed readonly by @types/node; assign through the record form.
 const env = process.env as Record<string, string | undefined>;
 env.DATABASE_URL = testUrl;
+// Nothing under test should ever see a direct URL from the developer's .env.
+env.DATABASE_URL_UNPOOLED = "";
 env.NODE_ENV = "test";
 // `||=`, not `??=`: .env.example ships these keys blank, and dotenv loads a
 // blank as "", which `??=` keeps. The app treats "" as unset (src/lib/env.ts),

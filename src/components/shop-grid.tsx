@@ -6,14 +6,14 @@ import Link from "next/link";
 import { Badge, EmptyState } from "@/components/ui";
 import { isShopOpenNow } from "@/lib/shop-hours";
 import { shopTypeLabel } from "@/lib/shop-types";
-import type { Shop } from "@/server/db/schema";
+import type { PublicShop } from "@/server/services/shops";
 
 type ViewMode = "grid" | "list";
 
 /** Shop grid/list with a view toggle (requirement §15). Classification is
  * deliberately not shown here — the Kesari/Green filter is disabled and the
  * badge removed from cards until that's re-enabled. */
-export function ShopGrid({ shops }: { shops: Shop[] }) {
+export function ShopGrid({ shops }: { shops: PublicShop[] }) {
   const [view, setView] = useState<ViewMode>("grid");
 
   if (shops.length === 0) {
@@ -79,7 +79,7 @@ export function ShopGrid({ shops }: { shops: Shop[] }) {
   );
 }
 
-function ShopCard({ shop }: { shop: Shop }) {
+function ShopCard({ shop }: { shop: PublicShop }) {
   const open = isShopOpenNow(shop);
 
   return (
@@ -130,7 +130,7 @@ function ShopCard({ shop }: { shop: Shop }) {
   );
 }
 
-function ShopListRow({ shop }: { shop: Shop }) {
+function ShopListRow({ shop }: { shop: PublicShop }) {
   const open = isShopOpenNow(shop);
 
   return (

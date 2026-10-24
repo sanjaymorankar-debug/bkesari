@@ -4,8 +4,10 @@
 # hand for now, deliberately: a mis-aimed deploy to production is the one
 # mistake this stage cannot afford. The guard enforces that mechanically.
 #
-# No database credential is stored in GitHub. The server's own .env holds them,
-# and rsync neither writes nor deletes it — see the "Upload" step.
+# No database credential is stored in GitHub. The server's own .env holds them
+# (the dev Neon branch's pooled DATABASE_URL and direct DATABASE_URL_UNPOOLED,
+# see DEPLOYMENT.md §1), and rsync neither writes nor deletes it — see the
+# "Upload" step. Nothing in this workflow connects to Neon.
 name: Deploy dev
 
 on:
@@ -52,8 +54,9 @@ jobs:
           --health-retries=10
 
     env:
-      # A throwaway CI database. Nothing here reaches any real tier: the dev,
-      # test and production credentials live only in each server's own .env.
+      # A throwaway CI database. Nothing here reaches any real tier or Neon:
+      # the dev, test and production credentials live only in each server's own
+      # .env. With no DATABASE_URL_UNPOOLED, migrations use DATABASE_URL.
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
@@ -241,9 +244,11 @@ jobs:
           REMOTE
 
       # Migrations are NOT applied automatically. Schema changes on this estate
-      # are reviewed and applied by hand (`npm run db:migrate` over SSH, or the
-      # migration SQL run with psql / the PostgreSQL provider's SQL console), so
-      # a deploy can never alter a database on its own. This step only reports
+      # are reviewed and applied by hand, so a deploy can never alter a database
+      # on its own: from a checkout, `DATABASE_URL_UNPOOLED=<the dev branch's
+      # direct URL> npm run db:migrate`, or the migration SQL in Neon's SQL
+      # Editor. Not over SSH: the server gets neither src/ nor the dev
+      # dependencies (tsx) that the migrate script needs. This step only reports
       # what the push brought.
       - name: Report migrations included in this deploy
         env:
@@ -273,7 +278,8 @@ jobs:
               echo "### Migrations ($scope)"
               echo
               echo "The code is live, but this workflow does **not** change the"
-              echo "schema. Confirm these are applied to the dev database:"
+              echo "schema. Apply these to the dev Neon branch over its direct URL"
+              echo "(DATABASE_URL_UNPOOLED; see DEPLOYMENT.md §4):"
               echo
               echo '```'
               echo "$added"

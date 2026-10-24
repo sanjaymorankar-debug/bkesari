@@ -1095,12 +1095,17 @@ export async function consumeOnlineStock(
     throw outOfStock("This product is currently unavailable online.");
   }
 
+  // The level this decrement started from is what the guarded UPDATE saw, not
+  // `current` above: that read takes no lock, so under concurrent orders it can
+  // be several units stale, and every racing movement would claim the same
+  // starting level. The UPDATE is atomic, so its result minus the delta is exact.
+  const newUnits = updated[0].onlineStock;
   await client.insert(inventoryMovements).values({
     shopProductId,
     channel: "ONLINE",
     deltaUnits: -units,
-    previousUnits: current.onlineStock,
-    newUnits: updated[0].onlineStock,
+    previousUnits: newUnits + units,
+    newUnits,
     reason,
     orderId: orderId ?? null,
   });

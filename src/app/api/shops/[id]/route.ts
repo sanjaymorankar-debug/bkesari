@@ -15,9 +15,16 @@ import { notFound } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The whole row, so only for the shop's owner or an admin — the same people
+ * who may edit it. It includes the owner's PAN (encrypted), fee and payment
+ * status and other non-public columns; the public view of a shop is its page
+ * and GET /api/shops.
+ */
 export const GET = route(
   async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
+    await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
     const shop = await getShopById(id);
     if (!shop) throw notFound("Shop");
     return ok(shop);

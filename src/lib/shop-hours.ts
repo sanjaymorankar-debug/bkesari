@@ -6,7 +6,10 @@
  */
 import type { Shop } from "@/server/db/schema";
 
-export function isShopOpenNow(shop: Shop, now: Date = new Date()): boolean {
+export function isShopOpenNow(
+  shop: Pick<Shop, "openingHours">,
+  now: Date = new Date(),
+): boolean {
   const hours = shop.openingHours;
   if (!hours || hours.length === 0) return true; // unset means always open
 

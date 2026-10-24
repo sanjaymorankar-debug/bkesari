@@ -19,11 +19,23 @@
  *   no-verify                             → TLS, certificate not checked
  *   anything else (require, prefer,
  *   verify-ca, verify-full)               → TLS, certificate verified
+ *
+ * Neon's connection strings also carry `channel_binding=require`, a libpq
+ * parameter node-postgres would otherwise ignore without a word. It is read
+ * into `enableChannelBinding`, so the SCRAM login is bound to the TLS channel
+ * (SCRAM-SHA-256-PLUS) whenever the server offers that, as Neon does.
+ * node-postgres falls back to plain SCRAM when a server does not offer it
+ * (PgBouncer, for one), so `require` behaves as libpq's `prefer`: TLS itself
+ * is unaffected either way. `channel_binding=disable` turns binding off, and
+ * `require` together with `sslmode=disable` is refused, since binding needs TLS.
  */
-export function pgConnectionOptions(url: string): {
+export interface PgConnectionOptions {
   connectionString: string;
   ssl?: false | { rejectUnauthorized: boolean };
-} {
+  enableChannelBinding?: boolean;
+}
+
+export function pgConnectionOptions(url: string): PgConnectionOptions {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -33,14 +45,28 @@ export function pgConnectionOptions(url: string): {
   }
 
   const sslmode = parsed.searchParams.get("sslmode");
-  if (sslmode === null) return { connectionString: url };
+  const channelBinding = parsed.searchParams.get("channel_binding");
+  if (sslmode === null && channelBinding === null) return { connectionString: url };
 
   parsed.searchParams.delete("sslmode");
-  return {
-    connectionString: parsed.toString(),
-    ssl:
+  parsed.searchParams.delete("channel_binding");
+  const options: PgConnectionOptions = { connectionString: parsed.toString() };
+
+  if (sslmode !== null) {
+    options.ssl =
       sslmode === "disable"
         ? false
-        : { rejectUnauthorized: sslmode !== "no-verify" },
-  };
+        : { rejectUnauthorized: sslmode !== "no-verify" };
+  }
+
+  if (channelBinding !== null) {
+    if (channelBinding === "require" && sslmode === "disable") {
+      throw new Error(
+        "The database URL has channel_binding=require but sslmode=disable; channel binding needs TLS.",
+      );
+    }
+    options.enableChannelBinding = channelBinding !== "disable";
+  }
+
+  return options;
 }

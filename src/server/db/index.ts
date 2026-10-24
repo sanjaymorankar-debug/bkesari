@@ -25,8 +25,11 @@ pg.types.setTypeParser(pg.types.builtins.INT8, (value: string) => {
 });
 
 /**
- * Single pooled connection reused across hot reloads. Next.js re-evaluates
- * modules on every edit in dev, so without this the pool leaks connections.
+ * One pool per process, kept on globalThis. Next.js re-evaluates modules on
+ * every edit in dev, and in a production server it loads this module more than
+ * once (route handlers and pages are bundled separately), so a module-level
+ * pool alone would multiply: each copy opening up to DATABASE_POOL_MAX
+ * connections of its own.
  */
 const globalForDb = globalThis as unknown as {
   __pgPool?: pg.Pool;
@@ -35,7 +38,7 @@ const globalForDb = globalThis as unknown as {
 function createPool() {
   const env = getEnv();
 
-  return new pg.Pool({
+  const pool = new pg.Pool({
     // TLS comes from the URL: managed providers (Neon, Supabase, RDS)
     // advertise `?sslmode=require`, while a local server needs nothing. See
     // ./ssl for why the mode is turned into an explicit option.
@@ -45,12 +48,36 @@ function createPool() {
     // than hard-coded.
     max: env.DATABASE_POOL_MAX,
     idleTimeoutMillis: 20_000,
+    // Generous on purpose: Neon suspends an idle compute, and the first
+    // connection after that waits for it to start again.
     connectionTimeoutMillis: 30_000,
   });
+
+  // The server can close any connection at any time: Neon suspending an idle
+  // compute, a pooler restart, an admin's pg_terminate_backend. node-postgres
+  // reports that as an 'error' event, and an 'error' event with no listener is
+  // an uncaught exception that ends the process. Two listeners cover it:
+  //
+  //  - on every client, for its whole life. The pool listens only while a
+  //    client is idle; once it is checked out, as db.transaction() does for
+  //    BEGIN … COMMIT, nothing does. A drop between two statements of a
+  //    transaction then fails that transaction (its next query rejects, and the
+  //    dead client is discarded on release) instead of the process;
+  //  - on the pool, which re-emits an idle client's error after removing the
+  //    client. That one is already logged by the client listener.
+  //
+  // Either way the next query opens a fresh connection.
+  pool.on("connect", (client) => {
+    client.on("error", (error) => {
+      console.warn(`[db] connection closed by the server: ${error.message}`);
+    });
+  });
+  pool.on("error", () => {});
+
+  return pool;
 }
 
-const pool = globalForDb.__pgPool ?? createPool();
-if (getEnv().NODE_ENV !== "production") globalForDb.__pgPool = pool;
+const pool = (globalForDb.__pgPool ??= createPool());
 
 export const db = drizzle(pool, { schema });
 export { schema };

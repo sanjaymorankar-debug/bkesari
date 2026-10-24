@@ -43,8 +43,11 @@ test.describe("customer journey", () => {
     expect(await walletBalancePaise(page)).toBe(0);
 
     // ---- Add ₹5,000 to the wallet (§20) --------------------------------
+    // A preset only fills in the amount, so a voucher can be previewed before
+    // paying (since 04f34f2); "Proceed to payment" is what pays.
     await page.goto("/wallet");
     await page.getByRole("button", { name: "₹5,000", exact: true }).click();
+    await page.getByRole("button", { name: "Proceed to payment" }).click();
     await expect(page.getByText("added to your wallet")).toBeVisible();
     expect(await walletBalancePaise(page)).toBe(500_000);
 

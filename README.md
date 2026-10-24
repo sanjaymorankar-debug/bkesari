@@ -106,7 +106,8 @@ Dairy Farm) so the online/offline rule is visible immediately.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | yes | PostgreSQL connection string, e.g. `postgresql://postgres:postgres@localhost:5432/dairy_bakery`. Managed providers need `?sslmode=require` on the end. A non-PostgreSQL URL is rejected at startup. (Alternatively leave it blank and set `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASS`/`DB_SSLMODE`.) |
+| `DATABASE_URL` | yes | PostgreSQL connection string the app runs on, e.g. `postgresql://postgres:postgres@localhost:5432/dairy_bakery`. On Neon, the **pooled** string, ending `?sslmode=require&channel_binding=require`. A non-PostgreSQL URL is rejected at startup. (Alternatively leave it blank and set `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASS`/`DB_SSLMODE`.) |
+| `DATABASE_URL_UNPOOLED` | on Neon | The **direct** (unpooled) string, used by `npm run db:migrate` and drizzle-kit. Unset, they use `DATABASE_URL`. See [DEPLOYMENT.md §1](./DEPLOYMENT.md#1-provision-postgresql-on-neon) |
 | `DATABASE_POOL_MAX` | no | Connection-pool ceiling per process, default `10`. Keep it under your PostgreSQL plan's connection limit |
 | `TEST_DATABASE_URL` | tests | Separate database for integration tests. `tests/setup.ts` points the app's connection at it, so the suite never touches development data |
 | `AUTH_SECRET` | yes | Auth.js session encryption. Generate with `openssl rand -base64 32` |
@@ -189,9 +190,14 @@ automatically the next day.
 ## Testing
 
 ```bash
-npm test                                    # 285 unit + integration tests
+npm test                                    # 313 unit + integration tests
 CHROMIUM_PATH=/path/to/chrome npm run test:e2e   # 10 E2E tests, desktop + mobile
 ```
+
+The E2E tests sign in through the development-only login, so they run against
+`npm run dev` with `BASE_PATH` empty (set `E2E_BASE_URL` if it is not on
+port 3000). What "tested" means for a change, and how to run every level
+including the smoke run under `/milk`, is in [TEST_SPEC.md](./TEST_SPEC.md).
 
 Integration tests run against real PostgreSQL, which is the point: the
 concurrency, idempotency and constraint guarantees below cannot be proven
@@ -209,6 +215,9 @@ What the suite actually proves:
 - A price change applies to future days only; past order lines are frozen
 - An insufficient balance takes no money, consumes no stock, marks the day, and can be retried after top-up
 - Offline-only products cannot enter a cart or be ordered
+- Concurrent orders for the last units sell each unit once, charge only the winners, and keep the inventory ledger contiguous
+- Public shop search never hands a visitor a shop's PAN, fee or payment columns
+- The app survives the server terminating its connections, as a Neon compute suspend does: idle ones are replaced, and a transaction caught mid-way fails on its own without taking the process down
 - A shop owner cannot reclassify their own shop even with the route guard bypassed
 
 ## Project layout
