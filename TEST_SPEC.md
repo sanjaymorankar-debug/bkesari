@@ -120,8 +120,8 @@ Record exit code, counts and duration for each.
 | S2 | unit | `npx vitest run tests/unit` | exit 0, all pass, count ≥ baseline |
 | S3 | integration | `npx vitest run tests/integration` | exit 0, all pass, count ≥ baseline. Real PostgreSQL: row locks, unique and CHECK constraints |
 | S4 | build | `BASE_PATH=/milk BASE_URL=http://127.0.0.1:3102/milk APP_ENV=dev DATABASE_URL=<app db> AUTH_SECRET=x CRON_SECRET=x npm run build` | exit 0. The build never connects to the database but needs the three variables |
-| S5 | smoke | Start: `BASE_PATH=/milk … npx next start -p 3102 -H 127.0.0.1` with the smoke variables (DATABASE_URL = the seeded app database). Create a signed-in admin and customer once: `psql "<app db>" -Atc "INSERT INTO users (email,name,role) VALUES ('smoke-admin@test.local','Smoke Admin','ADMIN') ON CONFLICT (email) DO UPDATE SET role='ADMIN' RETURNING id"` gives `SMOKE_ADMIN_ID`, and `psql "<app db>" -Atc "WITH u AS (INSERT INTO users (email,name,role) VALUES ('smoke-customer@test.local','Smoke Customer','CUSTOMER') ON CONFLICT (email) DO UPDATE SET role='CUSTOMER' RETURNING id) INSERT INTO wallets (user_id) SELECT id FROM u ON CONFLICT (user_id) DO UPDATE SET user_id = excluded.user_id RETURNING user_id"` gives `SMOKE_CUSTOMER_ID`. Then `SMOKE_BASE_URL=http://127.0.0.1:3102/milk SMOKE_ADMIN_ID=<id> SMOKE_CUSTOMER_ID=<id> CRON_SECRET=… AUTH_SECRET=… node scripts/smoke.mjs`. Stop the server | `26 passed, 0 failed, 0 skipped`. Covers: home 200, asset URLs under `/milk/_next/` and served, bare origin 404, demo shop page lists Kesari Dairy Farm and Malai Paneer, shops, search, sign-in and catalogue 200, `/admin` 200 "Admin dashboard" for an admin (the #12 500), cron GET health `"status":"ready"` and POST run with `"errors":[]` |
-| S6a | security | the S5 run | the same 26 include: `/api/wallet`, `/api/cart` and `/api/shops/{id}` give 401 anonymous; `/admin` gives 307 to `/milk/signin` anonymous and 307 for a customer; cron 403 with no token or a wrong one; `/api/dev/settle-topup` 404 in production; `/milk/.env`, `/milk/.env.example`, `/milk/package.json` and `/.env` 404; no PAN, fee or pickup column in the home, shops and search pages or `/api/shops` |
+| S5 | smoke | Start: `BASE_PATH=/milk … npx next start -p 3102 -H 127.0.0.1` with the smoke variables (DATABASE_URL = the seeded app database). Create a signed-in admin and customer once: `psql "<app db>" -Atc "INSERT INTO users (email,name,role) VALUES ('smoke-admin@test.local','Smoke Admin','ADMIN') ON CONFLICT (email) DO UPDATE SET role='ADMIN' RETURNING id"` gives `SMOKE_ADMIN_ID`, and `psql "<app db>" -Atc "WITH u AS (INSERT INTO users (email,name,role) VALUES ('smoke-customer@test.local','Smoke Customer','CUSTOMER') ON CONFLICT (email) DO UPDATE SET role='CUSTOMER' RETURNING id) INSERT INTO wallets (user_id) SELECT id FROM u ON CONFLICT (user_id) DO UPDATE SET user_id = excluded.user_id RETURNING user_id"` gives `SMOKE_CUSTOMER_ID`. Then `SMOKE_BASE_URL=http://127.0.0.1:3102/milk SMOKE_ADMIN_ID=<id> SMOKE_CUSTOMER_ID=<id> CRON_SECRET=… AUTH_SECRET=… node scripts/smoke.mjs`. Stop the server | `27 passed, 0 failed, 0 skipped`. Covers: home 200, asset URLs under `/milk/_next/` and served, bare origin 404, demo shop page lists Kesari Dairy Farm and Malai Paneer, shops, search, sign-in and catalogue 200, `/admin` 200 "Admin dashboard" for an admin (the #12 500), cron GET health `"status":"ready"` and POST run with `"errors":[]`, and the grievance rate limit holding while the visitor rotates `X-Forwarded-For` (behind a loopback hop: 422 to the limit, then 429; another visitor still 422). Its empty bodies file nothing, and a second run on the same server passes too |
+| S6a | security | the S5 run | the same 27 include: `/api/wallet`, `/api/cart` and `/api/shops/{id}` give 401 anonymous; `/admin` gives 307 to `/milk/signin` anonymous and 307 for a customer; cron 403 with no token or a wrong one; `/api/dev/settle-topup` 404 in production; `/milk/.env`, `/milk/.env.example`, `/milk/package.json` and `/.env` 404; no PAN, fee or pickup column in the home, shops and search pages or `/api/shops` |
 | S6b | hygiene | `git ls-files \| grep -E '(^\|/)\.env($\|\.)' \| grep -v '^\.env\.example$'` and `git grep -nIE 'npg_[A-Za-z0-9]{8,}\|AKIA[0-9A-Z]{16}\|-----BEGIN [A-Z ]*PRIVATE KEY-----\|ghp_[A-Za-z0-9]{30,}' -- . ':!package-lock.json'` | both print nothing (`npg_` is how Neon passwords begin) |
 | S6c | dependencies | `npm audit --omit=dev` | report only: list each high or critical advisory under *Open items*. Fix it only when the fix stays inside the declared range and needs no code change |
 | S7 | E2E | In a separate `git worktree` with the change applied (so `next dev` cannot touch this tree's `AGENTS.md`): `npm ci`; seed the app database; `DATABASE_URL=<app db> AUTH_SECRET=x CRON_SECRET=<c> AUTH_URL=http://localhost:3102 BASE_URL=http://localhost:3102 BASE_PATH= npx next dev -p 3102`; then `CRON_SECRET=<c> CHROMIUM_PATH=<chrome> E2E_BASE_URL=http://localhost:3102 npx playwright test --output=<scratch dir>`; stop the server | `10 passed` (5 tests × desktop and mobile). It needs `next dev`: its sign-in is the development-only login. It also needs an empty `BASE_PATH`, because its paths are root-relative. Keep `--output` outside the tree: `test-results/` is not git-ignored |
@@ -144,8 +144,8 @@ still run (N2 then without TLS).
 | N1 | Neon's URL string is accepted | part of S2: `tests/unit/db-ssl.test.ts` and `tests/unit/env-database-urls.test.ts` | `sslmode=require&channel_binding=require` gives verified TLS plus `enableChannelBinding`, and migrations prefer `DATABASE_URL_UNPOOLED` |
 | N2 | migrations over the direct URL, TLS, non-superuser, no app secrets | `env -i PATH="$PATH" HOME="$HOME" NODE_EXTRA_CA_CERTS="$NODE_EXTRA_CA_CERTS" DATABASE_URL=postgresql://nobody:x@127.0.0.1:1/none DATABASE_URL_UNPOOLED="$PARITY_DIRECT_URL" npm run db:migrate`, twice. Then `psql "$PARITY_DIRECT_URL" -Atc "select rolsuper from pg_roles where rolname = current_user"` and `psql "$PARITY_DIRECT_URL" -c "BEGIN; CREATE EXTENSION citext; CREATE EXTENSION btree_gist; CREATE EXTENSION pgcrypto; ROLLBACK;"` | both migrate runs print `(DATABASE_URL_UNPOOLED)` (the bogus `DATABASE_URL` proves the direct one was used); `rolsuper` is `f`; the extensions create and roll back without error |
 | N3 | the whole suite through the pooler | `TEST_DATABASE_URL="$PARITY_POOLED_TEST_URL" npm test` (with `NODE_EXTRA_CA_CERTS` when the pooler's certificate comes from a local CA) | all pass, the same count as R1. This proves `SELECT … FOR UPDATE` locking, the concurrency tests and `pg_terminate_backend` recovery (`tests/integration/db-connection.test.ts`) through PgBouncer |
-| N4 | smoke on the pooled URL | S5 with `DATABASE_URL="$PARITY_POOLED_URL"` (and the S4 build) | 26 passed |
-| N5 | server terminates idle connections | with the N4 server up: run the smoke once, wait 5 s, then `psql "$PARITY_DIRECT_URL" -Atc "SELECT count(*) FILTER (WHERE pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = current_user AND pid <> pg_backend_pid()"`, then check the server is still running and run the smoke again. Repeat with the server started on `PARITY_DIRECT_URL` (N5-direct) | the server process is still running; the next request returns 200 and the second smoke run passes 26/26. For N5-direct, the server log shows `[db] connection closed by the server: terminating connection due to administrator command` |
+| N4 | smoke on the pooled URL | S5 with `DATABASE_URL="$PARITY_POOLED_URL"` (and the S4 build) | 27 passed |
+| N5 | server terminates idle connections | with the N4 server up: run the smoke once, wait 5 s, then `psql "$PARITY_DIRECT_URL" -Atc "SELECT count(*) FILTER (WHERE pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = current_user AND pid <> pg_backend_pid()"`, then check the server is still running and run the smoke again. Repeat with the server started on `PARITY_DIRECT_URL` (N5-direct) | the server process is still running; the next request returns 200 and the second smoke run passes 27/27. For N5-direct, the server log shows `[db] connection closed by the server: terminating connection due to administrator command` |
 
 ## 4. Regression suite
 
@@ -163,7 +163,7 @@ Exit 0, every test passes, counts ≥ the baseline in §5.
 | MILK-CR-04 | The stock compare-and-swap sells the last units once, charges only the winners and keeps `inventory_movements` exact | `stock-concurrency.test.ts` (all three tests); N3 runs them through the pooler |
 | MILK-CR-05 | A guarded `UPDATE … RETURNING` never reports a row it did not write | `returning-atomicity.test.ts` › "never reports a row it did not write, even when a concurrent writer invalidates the guard" |
 | MILK-CR-06 | The daily-orders engine is idempotent (including 5 concurrent runs), skip and pause charge nothing, and an insufficient balance takes nothing and can be retried | `subscription-engine.test.ts` › "running the job twice for the same day changes nothing", "survives five concurrent runs of the same day", "a skipped day produces no order and no deduction", "does not deduct, marks the day WALLET_INSUFFICIENT, and allows a retry" |
-| MILK-CR-07 | The cron endpoint needs `Bearer $CRON_SECRET`: 403 without it, health check with it | S5 checks "cron refuses no token", "cron refuses a wrong token", "cron health with the token", "cron run with the token"; E2E "the cron endpoint rejects a missing or wrong token" |
+| MILK-CR-07 | The cron endpoint needs `Bearer $CRON_SECRET`: 403 without it, health check with it; tokenless requests get 403, never 429, and cannot use up the scheduler's rate limit | `tests/integration/cron-rate-limit.test.ts` (both); S5 checks "cron refuses no token", "cron refuses a wrong token", "cron health with the token", "cron run with the token"; E2E "the cron endpoint rejects a missing or wrong token" |
 | MILK-CR-08 | RBAC: roles never come from a request, owners cannot reclassify their shop, operators cannot approve their own price proposals, no IDOR across shops | `authorization.test.ts` › "refuses a shop owner even if the route guard were bypassed", "refuses to let an actor change their own role, even an admin"; `price-approval.test.ts` › "refuses to let an operator approve their own proposal (§7, §17)", "refuses to let one shop owner decide another shop's updates (IDOR)" |
 | MILK-CR-09 | SEC-03: no admin is bootstrapped unless a variable names one | `tests/unit/env-admin-emails.test.ts` (all); `authorization.test.ts` › "SEC-03 fixed: bootstraps no admin emails by default — no hard-coded fallback" |
 | MILK-CR-10 | `/admin` renders for an admin on PostgreSQL (#12 was a 500), and its aggregates come back as numbers | S5 "admin dashboard renders for an admin"; `admin-dashboard-aggregates.test.ts` (all) |
@@ -175,6 +175,7 @@ Exit 0, every test passes, counts ≥ the baseline in §5.
 | MILK-CR-16 | Reference numbers (P…, BKS-…, GRV-…) stay distinct under concurrent inserts | `reference-sequences.test.ts` (all) |
 | MILK-CR-17 | The deploy guard refuses test, production, gokesari.com and a non-dev branch | `bash .github/deploy/guard.test.sh`: `32 passed, 0 failed` |
 | MILK-CR-18 | The tests cannot reach a hosted database | `tests/setup.ts` refuses a non-local `TEST_DATABASE_URL`. Check: `TEST_DATABASE_URL=postgresql://u:p@ep-x.neon.tech/milk npx vitest run tests/unit/schedule.test.ts` must fail with "must point at a database on this machine" |
+| MILK-CR-19 | An anonymous rate limit (grievance submission and lookup, cron) cannot be dodged by forging `X-Forwarded-For`: the key is the first address from the right that is not loopback or in `TRUSTED_PROXIES`, and anything unreadable falls to one shared `unknown` bucket | `tests/unit/rate-limit-client-key.test.ts` (all); S5 "grievance limit holds when the visitor rotates X-Forwarded-For" |
 
 **R3. Change-area map.** Emphasise these when a path changes. Everything in R1
 and R2 still runs.
@@ -188,6 +189,7 @@ and R2 still runs.
 | `src/server/authz/**`, `src/server/auth.ts`, `src/server/services/users.ts`, `price-requests.ts` | CR-08, CR-09; S6a; E2E access-control tests |
 | `src/server/services/shops.ts`, `src/app/api/shops/**`, `src/components/shop-grid.tsx`, `src/app/page.tsx`, `shops/**`, `search/**` | CR-12; S6a |
 | `src/app/admin/**` | CR-10; S5 admin check |
+| `src/server/api/rate-limit.ts`, `src/app/api/grievances/**`, `TRUSTED_PROXIES` in `src/lib/env.ts` | CR-19; S5 grievance rate-limit check; CR-07 and `cron-rate-limit.test.ts` (the cron route checks the token before it counts) |
 | `next.config.ts`, `src/app/layout.tsx`, anything building URLs (`BASE_URL`, links, `fetch("/api/…")` in components) | CR-11; S4 and S5 under `/milk`; S7 |
 | `.github/deploy/**`, `.github/workflows/**` | CR-17; review that CI still has one local PostgreSQL and no Neon URL |
 | `tests/setup.ts`, `tests/helpers/**`, `vitest.config.ts` | CR-18; R1 counts; keep `maxWorkers: 1` and `fileParallelism: false` |
@@ -203,29 +205,32 @@ fine; say so in the report.
 Measured on 2026-10-24 in a Linux container (Node 22.22.0, npm 10.9.4,
 PostgreSQL 16.15, PgBouncer 1.22 in transaction mode with TLS on 6432, a local
 TLS CA via `NODE_EXTRA_CA_CERTS`, Chromium 1243 for Playwright 1.62.1). The
-branch was `claude/fervent-bell-wcmmdu` at `591fadf`. The first run is the tree
-as merged (#16 plus the testing framework). The final run adds this run's fixes
-and the tests they brought; **the final-run counts are the baseline**.
+branch was `claude/fervent-bell-wcmmdu`. The first run is the tree as merged
+at `591fadf` (#16 plus the testing framework). The second adds that run's fixes
+and the tests they brought, committed as `f0b074e`. The third, the same day,
+adds the `clientKey` fix (MILK-CR-19) with 13 unit tests and one smoke check, and
+the cron route checking its token before it counts (2 integration tests);
+**the third run's counts are the baseline**. The first two columns are history.
 
-| Level | First run (591fadf as merged) | Final run (baseline) |
-|---|---|---|
-| S1a typecheck | pass, 25 s | pass, 22 s |
-| S1b lint | 0 errors, 2 warnings (`src/app/api/shop-products/[id]/route.ts:88-89`), 23 s | 0 errors, 2 warnings (the same two), 23 s |
-| S1c schema drift | not run | "No schema changes", `drizzle/` unchanged, 3 s |
-| S1d migrate twice | pass | pass, 2 s |
-| S2 unit | not run separately | 6 files, 50 tests, 50 passed, 0 skipped, 10 s |
-| S3 integration | not run separately | 28 files, 263 tests, 263 passed, 0 skipped, 148 s |
-| R1 `npm test` | 30 files, 296 tests, 296 passed, 0 skipped, 114 s | **34 files, 313 tests, 313 passed, 0 skipped**, 124 s |
-| S4 build (`BASE_PATH=/milk`) | pass, 51 s | pass, 31 s |
-| S5 + S6a smoke | not available (no script); by hand, `/api/shops` and the home, shops and search pages leaked private shop columns | 26 passed, 0 failed, 0 skipped, 1 s |
-| S6b hygiene | nothing tracked, no secrets | nothing tracked, no secrets |
-| S6c `npm audit --omit=dev` | 7 advisories: 1 critical (`next` 16.3.1), 4 high (`zod`, `sharp`, `source-map-js`, `brace-expansion`), 2 moderate (`exceljs`, `uuid`) | the same 7 (report only) |
-| S7 E2E | 8 passed, 2 failed (the stale top-up step) | 10 passed, 0 failed, 45 s |
-| N2 migrations over direct TLS | failed without `AUTH_SECRET` and `CRON_SECRET` | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK |
-| N3 suite through the pooler | not run | 34 files, 313 passed, 0 skipped, 145 s |
-| N4 smoke on the pooled URL | not run | 26 passed |
-| N5 terminate idle connections | the pool had no `error` listener: a terminated idle client was an unhandled error | pooled: 5 terminated, server alive, 200, smoke 26/26; direct: 14 terminated, server alive, 200, smoke 26/26, 10 `connection closed by the server` lines |
-| guard.test.sh | 32 passed | 32 passed |
+| Level | First run (591fadf as merged) | Second run (591fadf + fixes = f0b074e) | Third run (f0b074e + `clientKey` and cron-order fixes, baseline) |
+|---|---|---|---|
+| S1a typecheck | pass, 25 s | pass, 22 s | pass, 9 s |
+| S1b lint | 0 errors, 2 warnings (`src/app/api/shop-products/[id]/route.ts:88-89`), 23 s | 0 errors, 2 warnings (the same two), 23 s | 0 errors, 2 warnings (the same two), 15 s |
+| S1c schema drift | not run | "No schema changes", `drizzle/` unchanged, 3 s | "No schema changes", `drizzle/` unchanged, 2 s |
+| S1d migrate twice | pass | pass, 2 s | pass, 1 s |
+| S2 unit | not run separately | 6 files, 50 tests, 50 passed, 0 skipped, 10 s | 7 files, 63 tests, 63 passed, 0 skipped, 7 s |
+| S3 integration | not run separately | 28 files, 263 tests, 263 passed, 0 skipped, 148 s | 29 files, 265 tests, 265 passed, 0 skipped, 96 s |
+| R1 `npm test` | 30 files, 296 tests, 296 passed, 0 skipped, 114 s | 34 files, 313 tests, 313 passed, 0 skipped, 124 s | **36 files, 328 tests, 328 passed, 0 skipped**, 106 s |
+| S4 build (`BASE_PATH=/milk`) | pass, 51 s | pass, 31 s | pass, 16 s |
+| S5 + S6a smoke | not available (no script); by hand, `/api/shops` and the home, shops and search pages leaked private shop columns | 26 passed, 0 failed, 0 skipped, 1 s | 27 passed, 0 failed, 0 skipped, 2 s (and 27 again on the same server) |
+| S6b hygiene | nothing tracked, no secrets | nothing tracked, no secrets | nothing tracked, no secrets |
+| S6c `npm audit --omit=dev` | 7 advisories: 1 critical (`next` 16.3.1), 4 high (`zod`, `sharp`, `source-map-js`, `brace-expansion`), 2 moderate (`exceljs`, `uuid`) | the same 7 (report only) | the same 7 (report only) |
+| S7 E2E | 8 passed, 2 failed (the stale top-up step) | 10 passed, 0 failed, 45 s | 10 passed, 0 failed, 47 s |
+| N2 migrations over direct TLS | failed without `AUTH_SECRET` and `CRON_SECRET` | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK | pass twice, `(DATABASE_URL_UNPOOLED)`, `rolsuper` = `f`, extensions OK |
+| N3 suite through the pooler | not run | 34 files, 313 passed, 0 skipped, 145 s | 36 files, 328 passed, 0 skipped, 124 s |
+| N4 smoke on the pooled URL | not run | 26 passed | 27 passed |
+| N5 terminate idle connections | the pool had no `error` listener: a terminated idle client was an unhandled error | pooled: 5 terminated, server alive, 200, smoke 26/26; direct: 14 terminated, server alive, 200, smoke 26/26, 10 `connection closed by the server` lines | pooled: 7 terminated, server alive, 200, smoke 27/27; direct: 15 terminated, server alive, 200, smoke 27/27, 10 `connection closed by the server` lines |
+| guard.test.sh | 32 passed | 32 passed | 32 passed |
 
 No skips are expected anywhere. Before the move to PostgreSQL, the suite on
 MySQL 8.0.46 was 28 files and 284 tests, and took 591 s.
@@ -331,5 +336,10 @@ VERDICT: PASS | FAIL | BLOCKED
   which creates and drops a throwaway database and so needs a role with
   `CREATEDB`. On the Mac: `PG_ADMIN_URL=postgresql://localhost/postgres sh scripts/dump-schema.sh && git diff --exit-code database/schema.sql`.
   It is not a standard level because it needs that extra database.
+- **The live proxy chain is not known.** Whether Hostinger's front end appends to
+  `X-Forwarded-For` or replaces it, and how many hops there are, is confirmed
+  only on a live deploy (DEPLOYMENT.md §2, "Trusted proxies"). The tests model
+  the chain as `<forged>, <visitor>, <proxy>`; the smoke check sends it to
+  `next start` directly, with a loopback hop at the end.
 - **No load tests, no accessibility audit, no visual checks.** Rate limiting is
   in-process and not tested across instances.

@@ -107,6 +107,7 @@ openssl rand -hex 32      # CRON_SECRET
 | `BOOTSTRAP_ADMIN_EMAILS` | `agtcipl@gmail.com` |
 | `APP_TIMEZONE` | `Asia/Kolkata` |
 | `SUBSCRIPTION_CUTOFF_HOUR` | `20` |
+| `TRUSTED_PROXIES` | leave blank at first; after the first deploy, run the two-network check in [DEPLOYMENT.md §2, "Trusted proxies"](./DEPLOYMENT.md#trusted-proxies-trusted_proxies) and set it to the server's own IP if visitors share one rate-limit bucket |
 
 Leave the `CASHFREE_*` variables **unset on staging** — the app then runs in
 mock payment mode, so you can exercise the full wallet flow without moving real

@@ -120,6 +120,7 @@ Dairy Farm) so the online/offline rule is visible immediately.
 | `PERMANENT_ADMIN_EMAILS` | recommended | Comma-separated emails re-promoted to ADMIN on *every* session, not just first sign-in — for the accounts that must never be lockable-out even by an accidental or malicious role change. Meant to stay set (unlike `BOOTSTRAP_ADMIN_EMAILS`). No default — set it yourself; there is no hard-coded fallback (SEC-03) |
 | `SUBSCRIPTION_CUTOFF_HOUR` | no | Delivery cutoff hour, default `20` |
 | `APP_TIMEZONE` | no | IANA zone for delivery dates, default `Asia/Kolkata` |
+| `TRUSTED_PROXIES` | behind a proxy that is not on loopback | Comma-separated IPs or CIDR ranges of the proxies in front of the app; loopback is always trusted. The anonymous rate limits read the visitor's address from `X-Forwarded-For` from the right, past these. Unset there, every visitor shares one bucket per limit (over-limiting, never a bypass). See [DEPLOYMENT.md §2](./DEPLOYMENT.md#trusted-proxies-trusted_proxies) |
 
 An empty value (`FOO=`) is treated as unset.
 
@@ -190,7 +191,7 @@ automatically the next day.
 ## Testing
 
 ```bash
-npm test                                    # 313 unit + integration tests
+npm test                                    # 328 unit + integration tests
 CHROMIUM_PATH=/path/to/chrome npm run test:e2e   # 10 E2E tests, desktop + mobile
 ```
 

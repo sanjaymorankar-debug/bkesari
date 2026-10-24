@@ -102,6 +102,9 @@ BOOTSTRAP_ADMIN_EMAILS=you@your-domain.com
 
 APP_TIMEZONE=Asia/Kolkata
 SUBSCRIPTION_CUTOFF_HOUR=20
+
+# Blank at first; then the server's own IP, once the chain is confirmed (below).
+TRUSTED_PROXIES=
 ```
 
 Generate secrets properly:
@@ -113,6 +116,48 @@ openssl rand -hex 32      # CRON_SECRET
 
 `BOOTSTRAP_ADMIN_EMAILS` grants ADMIN on **first sign-in only**. Sign in once
 with that address, verify you can reach `/admin`, then remove the variable.
+
+### Trusted proxies (`TRUSTED_PROXIES`)
+
+The anonymous rate limits count per visitor address: grievance submission (5
+per 10 minutes), grievance status lookup (the same), and the cron endpoint (30 a
+minute, counting only requests that carry the right token). The address comes from
+`X-Forwarded-For`. Every proxy appends the address it received the request from,
+and Next passes the header on unchanged. On bkesari.com the chain is visitor →
+Hostinger's front end → the hub (bkesari-platform `portal/proxy.js`, which
+appends) → the app, through Hostinger's front end again when the hub reaches the
+app by its hostname. Whatever the visitor sends comes first, so the app reads
+the header from the right: it skips trusted proxies and takes the first other
+address as the visitor's. Loopback is always trusted. `TRUSTED_PROXIES` adds the
+others, as IPs or CIDR ranges, comma-separated. A malformed entry stops the app
+at startup.
+
+**Unset, behind a front end that is not on loopback, every visitor shares one
+bucket per limit.** One visitor can then use up the whole site's 5 grievance
+submissions per 10 minutes. (The cron endpoint checks the token before it
+counts, so tokenless requests cannot hold off the scheduler's run.) That errs toward
+over-limiting. It never lets a visitor dodge a limit.
+
+Nobody has yet confirmed whether Hostinger's front end appends to the header or
+replaces it, or how many hops there are. So the app counts no hops, and the
+variable is set from what the live chain shows, on the first deploy of a tier:
+
+1. **The limit holds.** From one network, request
+   `https://<tier host>/milk/api/grievances/lookup` six times, each with a
+   different made-up header, e.g.
+   `curl -s -o /dev/null -w '%{http_code}\n' -H "X-Forwarded-For: 203.0.113.$i" …`.
+   Each answer is 422 (no ticket was given), and the sixth must be 429. If it is
+   not, stop: the chain is not what this section assumes.
+2. **Visitors are told apart.** Straight after, request it once from a second
+   network (a phone off Wi-Fi). A 422 means visitors already get buckets of
+   their own, and there is nothing to set. A 429 means they share one: go on.
+3. Set `TRUSTED_PROXIES` to the server's own IP (`curl -s https://api.ipify.org`
+   over SSH on the server), redeploy, wait 10 minutes and repeat both steps.
+   The second network must now get 422.
+
+Trusting an address trusts every program that can send from it. On shared
+hosting that includes the other sites on the same server, which could then pick
+their own key, as anyone could before.
 
 ### Google OAuth
 
@@ -374,6 +419,7 @@ Rollback checklist:
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once
 - [ ] Daily cron scheduled **and observed to run successfully once**
 - [ ] Signed in with the bootstrap admin, then removed `BOOTSTRAP_ADMIN_EMAILS`
+- [ ] Rate-limit chain checked and `TRUSTED_PROXIES` set if needed (§2, "Trusted proxies"): a made-up `X-Forwarded-For` does not escape the limit, and a second network is not limited by the first
 - [ ] Backups scheduled and one restore tested
 - [ ] Ledger integrity queries scheduled with alerting
 - [ ] HTTPS enforced; HTTP redirects to HTTPS

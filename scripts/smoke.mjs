@@ -13,7 +13,9 @@
  * skipped when those variables are unset. Run it against a seeded scratch
  * database (npm run db:seed): the shop-page check looks for the demo shop.
  *
- * Makes no change except POST /api/cron/daily-orders, which is idempotent.
+ * Makes no change except POST /api/cron/daily-orders, which is idempotent. (Its
+ * empty grievance submissions are refused before anything is written; they
+ * spend the rate limit of two made-up visitors in 198.51.100.0/24.)
  * Only ever point it at a local server: it sends CRON_SECRET.
  */
 import { encode } from "next-auth/jwt";
@@ -127,6 +129,35 @@ await check("dev settle endpoint is off in production", `${base}/api/dev/settle-
 });
 for (const path of [`${base}/.env`, `${base}/.env.example`, `${base}/package.json`, `${origin}/.env`]) {
   await check(`not served: ${path.replace(origin, "")}`, path, { status: 404 });
+}
+
+// --- The anonymous rate limit cannot be dodged ------------------------------
+// The grievance form allows 5 submissions per visitor per 10 minutes. Behind a
+// proxy, X-Forwarded-For reads "<whatever the visitor sent>, <visitor>,
+// <proxy>": here the visitor 198.51.100.23 changes the part it controls on
+// every request, through a hop on loopback. The bodies are empty, so the limit
+// is spent but nothing is filed: 422 until the limit, then 429. A server whose
+// quota for this visitor an earlier run already spent answers 429 sooner.
+// Another visitor behind the same hop must still get through.
+{
+  const grievance = (forwardedFor) =>
+    get(`${base}/api/grievances`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": forwardedFor },
+      body: "{}",
+    }).then((r) => r.status);
+  const name = "grievance limit holds when the visitor rotates X-Forwarded-For";
+  try {
+    const statuses = [];
+    for (let i = 1; i <= 6 && statuses.at(-1) !== 429; i += 1) {
+      statuses.push(await grievance(`203.0.113.${i}, 198.51.100.23, 127.0.0.1`));
+    }
+    const other = await grievance(`203.0.113.99, 198.51.100.${100 + Math.floor(Math.random() * 150)}, 127.0.0.1`);
+    const limited = statuses.at(-1) === 429 && statuses.slice(0, -1).every((s) => s === 422);
+    report(limited && other === 422, name, `statuses ${statuses.join(" ")}; another visitor ${other}`);
+  } catch (error) {
+    report(false, name, error.message);
+  }
 }
 
 // --- With the cron token ----------------------------------------------------

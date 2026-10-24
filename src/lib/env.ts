@@ -4,7 +4,38 @@
  * Secrets are read here and nowhere else. Nothing in this file may be imported
  * from a Client Component — the values are server-only.
  */
+import { isIP } from "node:net";
+
 import { z } from "zod";
+
+/** A proxy the app trusts to have appended the address it saw to X-Forwarded-For. */
+export interface TrustedProxy {
+  address: string;
+  /** 32 or 128 for a single address. */
+  prefix: number;
+  family: "ipv4" | "ipv6";
+}
+
+/**
+ * One TRUSTED_PROXIES entry: an IP address (192.0.2.10, 2001:db8::10) or a
+ * CIDR range (10.0.0.0/8, 2001:db8::/32). Null when it is neither.
+ */
+function parseTrustedProxy(entry: string): TrustedProxy | null {
+  const [address, bits, extra] = entry.split("/");
+  const version = isIP(address);
+  if (version === 0 || extra !== undefined) return null;
+  const max = version === 4 ? 32 : 128;
+  const prefix = bits === undefined ? max : /^\d{1,3}$/.test(bits) ? Number(bits) : -1;
+  if (prefix < 0 || prefix > max) return null;
+  return { address, prefix, family: version === 4 ? "ipv4" : "ipv6" };
+}
+
+function splitList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+}
 
 /**
  * A PostgreSQL connection string. Only the postgres:// and postgresql://
@@ -126,6 +157,30 @@ const serverEnvSchema = z.object({
    * payment callbacks, which cannot rely on a request being in scope.
    */
   BASE_URL: z.string().url().optional(),
+
+  /**
+   * Comma-separated IP addresses or CIDR ranges of the proxies in front of the
+   * app that are not on loopback (loopback is always trusted). The anonymous
+   * rate limits key on the visitor's address, read from X-Forwarded-For from
+   * the right past these (see clientKey() in src/server/api/rate-limit.ts).
+   * Unset, a front end that reaches the app from another address is taken for
+   * the visitor, so everyone behind it shares one bucket: over-limiting, never
+   * a bypass. On Hostinger: the server's own IP, once the real chain is
+   * confirmed (DEPLOYMENT.md §2).
+   */
+  TRUSTED_PROXIES: z
+    .string()
+    .optional()
+    .superRefine((value, ctx) => {
+      for (const entry of splitList(value)) {
+        if (!parseTrustedProxy(entry)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `${JSON.stringify(entry)} is not an IP address or CIDR range (e.g. 192.0.2.10, 10.0.0.0/8)`,
+          });
+        }
+      }
+    }),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -267,6 +322,12 @@ export function isPanProviderConfigured(): boolean {
 
 export function isPanEncryptionConfigured(): boolean {
   return Boolean(getEnv().PAN_ENCRYPTION_KEY);
+}
+
+/** TRUSTED_PROXIES, parsed. Empty unless the variable is set. */
+export function trustedProxies(): TrustedProxy[] {
+  // Every entry parses: getEnv() refused the configuration otherwise.
+  return splitList(getEnv().TRUSTED_PROXIES).map((entry) => parseTrustedProxy(entry)!);
 }
 
 /**
