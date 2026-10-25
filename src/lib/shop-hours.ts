@@ -1,12 +1,15 @@
 /**
  * Pure opening-hours logic, split out from server/services/shops.ts so
  * client components can check whether a shop is open without pulling in
- * that file's database imports (mysql2 uses Node's `fs`, which breaks a
+ * that file's database imports (pg uses Node's `net`/`fs`, which breaks a
  * client bundle).
  */
 import type { Shop } from "@/server/db/schema";
 
-export function isShopOpenNow(shop: Shop, now: Date = new Date()): boolean {
+export function isShopOpenNow(
+  shop: Pick<Shop, "openingHours">,
+  now: Date = new Date(),
+): boolean {
   const hours = shop.openingHours;
   if (!hours || hours.length === 0) return true; // unset means always open
 

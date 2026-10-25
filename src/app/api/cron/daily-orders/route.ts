@@ -40,8 +40,11 @@ function assertAuthorized(request: NextRequest): void {
 }
 
 export const POST = route(async (request: NextRequest) => {
-  enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
+  // The token first: until TRUSTED_PROXIES is set, every caller behind a
+  // non-loopback front end shares one rate-limit bucket, so counting tokenless
+  // requests there would let anyone hold off the scheduler's run.
   assertAuthorized(request);
+  enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
 
   const body = await parseBody(request, bodySchema).catch(() => ({
     date: undefined,

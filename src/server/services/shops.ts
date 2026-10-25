@@ -6,7 +6,7 @@
  *   - Kesari/Green classification is writable only by OPERATOR/ADMIN, and every
  *     change is recorded with who/when/why.
  */
-import { and, asc, desc, eq, gte, like, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
@@ -28,8 +28,6 @@ import { resolveLocationVerification } from "./geocoding";
 import { attributeShopToCode } from "./referrals";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 
-import { insertReturning, updateReturning } from "@/server/db/returning";
-import { nextShopRegistrationNumber } from "@/server/db/sequences";
 export interface RegisterShopInput {
   name: string;
   ownerName: string;
@@ -126,47 +124,49 @@ export async function registerShop(
     throw validationFailed("Registration fee must be a whole number of paise.");
   }
 
-  const [shop] = await insertReturning(db, shops, {
-    registrationNumber: await nextShopRegistrationNumber(db),
-    ownerId,
-    registrationDate:
-      (privileged ? input.registrationDate : null) ??
-      new Date().toISOString().slice(0, 10),
-    registrationFeePaise,
-    registrationFeeId: scheduled.feeId,
-    feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
-    name: input.name.trim(),
-    slug: uniqueSlug(input.name),
-    ownerName: input.ownerName.trim(),
-    phone: input.phone,
-    email: input.email ?? null,
-    addressLine1: input.addressLine1,
-    addressLine2: input.addressLine2 ?? null,
-    area: input.area ?? null,
-    city: input.city,
-    state: input.state ?? null,
-    pincode: input.pincode,
-    latitude: input.latitude ?? null,
-    longitude: input.longitude ?? null,
-    pickupLatitude: input.pickupLatitude ?? null,
-    pickupLongitude: input.pickupLongitude ?? null,
-    pickupInstructions: input.pickupInstructions ?? null,
-    landmark: input.landmark ?? null,
-    locationVerified,
-    locationVerifiedAt,
-    locationSource,
-    shopType: input.shopType,
-    logoUrl: input.logoUrl ?? null,
-    photos: input.photos ?? [],
-    openingHours: input.openingHours ?? [],
-    deliveryAvailable: input.deliveryAvailable ?? false,
-    deliveryFeePaise: input.deliveryFeePaise ?? 0,
-    freeDeliveryAbovePaise: input.freeDeliveryAbovePaise ?? null,
-    description: input.description ?? null,
-    // Status and classification are deliberately NOT taken from input.
-    status: "PENDING_APPROVAL",
-    classification: null,
-  });
+  const [shop] = await db
+    .insert(shops)
+    .values({
+      ownerId,
+      registrationDate:
+        (privileged ? input.registrationDate : null) ??
+        new Date().toISOString().slice(0, 10),
+      registrationFeePaise,
+      registrationFeeId: scheduled.feeId,
+      feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
+      name: input.name.trim(),
+      slug: uniqueSlug(input.name),
+      ownerName: input.ownerName.trim(),
+      phone: input.phone,
+      email: input.email ?? null,
+      addressLine1: input.addressLine1,
+      addressLine2: input.addressLine2 ?? null,
+      area: input.area ?? null,
+      city: input.city,
+      state: input.state ?? null,
+      pincode: input.pincode,
+      latitude: input.latitude ?? null,
+      longitude: input.longitude ?? null,
+      pickupLatitude: input.pickupLatitude ?? null,
+      pickupLongitude: input.pickupLongitude ?? null,
+      pickupInstructions: input.pickupInstructions ?? null,
+      landmark: input.landmark ?? null,
+      locationVerified,
+      locationVerifiedAt,
+      locationSource,
+      shopType: input.shopType,
+      logoUrl: input.logoUrl ?? null,
+      photos: input.photos ?? [],
+      openingHours: input.openingHours ?? [],
+      deliveryAvailable: input.deliveryAvailable ?? false,
+      deliveryFeePaise: input.deliveryFeePaise ?? 0,
+      freeDeliveryAbovePaise: input.freeDeliveryAbovePaise ?? null,
+      description: input.description ?? null,
+      // Status and classification are deliberately NOT taken from input.
+      status: "PENDING_APPROVAL",
+      classification: null,
+    })
+    .returning();
 
   // Registering a shop promotes a plain customer to SHOP_OWNER — whether they
   // registered it themselves or an operator registered it for them. Operators
@@ -236,18 +236,22 @@ export async function updateShopRegistration(
     throw validationFailed("Registration fee must be a whole number of paise.");
   }
 
-  const [updated] = await updateReturning(db, shops, {
-    ...(patch.registrationFeePaise !== undefined
-      ? { registrationFeePaise: patch.registrationFeePaise }
-      : {}),
-    ...(patch.registrationDate !== undefined
-      ? { registrationDate: patch.registrationDate }
-      : {}),
-    ...(patch.feePaymentStatus !== undefined
-      ? { feePaymentStatus: patch.feePaymentStatus }
-      : {}),
-    updatedAt: new Date(),
-  }, eq(shops.id, shopId));
+  const [updated] = await db
+    .update(shops)
+    .set({
+      ...(patch.registrationFeePaise !== undefined
+        ? { registrationFeePaise: patch.registrationFeePaise }
+        : {}),
+      ...(patch.registrationDate !== undefined
+        ? { registrationDate: patch.registrationDate }
+        : {}),
+      ...(patch.feePaymentStatus !== undefined
+        ? { feePaymentStatus: patch.feePaymentStatus }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(shops.id, shopId))
+    .returning();
 
   if (patch.referralCode) {
     await attributeShopToCode(shopId, patch.referralCode, actor);
@@ -304,19 +308,23 @@ export async function updateShopCompliance(
     throw validationFailed("GSTIN must be 15 alphanumeric characters.");
   }
 
-  const [updated] = await updateReturning(db, shops, {
-    ...(patch.legalBusinessName !== undefined
-      ? { legalBusinessName: patch.legalBusinessName }
-      : {}),
-    ...(patch.gstin !== undefined ? { gstin: patch.gstin } : {}),
-    ...(patch.fssaiLicenseNumber !== undefined
-      ? { fssaiLicenseNumber: patch.fssaiLicenseNumber }
-      : {}),
-    ...(patch.returnPolicyText !== undefined
-      ? { returnPolicyText: patch.returnPolicyText }
-      : {}),
-    updatedAt: new Date(),
-  }, eq(shops.id, shopId));
+  const [updated] = await db
+    .update(shops)
+    .set({
+      ...(patch.legalBusinessName !== undefined
+        ? { legalBusinessName: patch.legalBusinessName }
+        : {}),
+      ...(patch.gstin !== undefined ? { gstin: patch.gstin } : {}),
+      ...(patch.fssaiLicenseNumber !== undefined
+        ? { fssaiLicenseNumber: patch.fssaiLicenseNumber }
+        : {}),
+      ...(patch.returnPolicyText !== undefined
+        ? { returnPolicyText: patch.returnPolicyText }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(shops.id, shopId))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -356,14 +364,18 @@ export async function approveShop(
       throw conflict("This shop is already approved.");
     }
 
-    const [updated] = await updateReturning(tx, shops, {
-      status: "APPROVED",
-      classification: input.classification,
-      approvedAt: new Date(),
-      approvedBy: actor.id,
-      rejectionReason: null,
-      updatedAt: new Date(),
-    }, eq(shops.id, shopId));
+    const [updated] = await tx
+      .update(shops)
+      .set({
+        status: "APPROVED",
+        classification: input.classification,
+        approvedAt: new Date(),
+        approvedBy: actor.id,
+        rejectionReason: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(shops.id, shopId))
+      .returning();
 
     await tx.insert(shopClassificationHistory).values({
       shopId,
@@ -397,7 +409,11 @@ export async function rejectShop(
   if (!reason.trim()) {
     throw validationFailed("A rejection reason is required.");
   }
-  const [updated] = await updateReturning(db, shops, { status: "REJECTED", rejectionReason: reason, updatedAt: new Date() }, eq(shops.id, shopId));
+  const [updated] = await db
+    .update(shops)
+    .set({ status: "REJECTED", rejectionReason: reason, updatedAt: new Date() })
+    .where(eq(shops.id, shopId))
+    .returning();
   if (!updated) throw notFound("Shop");
 
   await recordAudit({
@@ -417,7 +433,11 @@ export async function setShopStatus(
   actor: { id: string; role: UserRole },
   reason?: string,
 ): Promise<Shop> {
-  const [updated] = await updateReturning(db, shops, { status, updatedAt: new Date() }, eq(shops.id, shopId));
+  const [updated] = await db
+    .update(shops)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(shops.id, shopId))
+    .returning();
   if (!updated) throw notFound("Shop");
 
   await recordAudit({
@@ -501,11 +521,15 @@ export async function updateShop(
       )
     : null;
 
-  const [updated] = await updateReturning(db, shops, {
-    ...input,
-    ...(verification ?? {}),
-    updatedAt: new Date(),
-  }, eq(shops.id, shopId));
+  const [updated] = await db
+    .update(shops)
+    .set({
+      ...input,
+      ...(verification ?? {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(shops.id, shopId))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -564,7 +588,11 @@ export async function changeClassification(
       throw conflict(`This shop is already classified as ${newValue}.`);
     }
 
-    const [updated] = await updateReturning(tx, shops, { classification: newValue, updatedAt: new Date() }, eq(shops.id, shopId));
+    const [updated] = await tx
+      .update(shops)
+      .set({ classification: newValue, updatedAt: new Date() })
+      .where(eq(shops.id, shopId))
+      .returning();
 
     await tx.insert(shopClassificationHistory).values({
       shopId,
@@ -647,10 +675,61 @@ export interface ShopSearchFilters {
   offset?: number;
 }
 
-/** Public shop search (§15). Only APPROVED shops are ever returned. */
+/**
+ * The columns of a shop that anyone may see.
+ *
+ * Public search hands its rows straight to anonymous visitors: as JSON from
+ * GET /api/shops, and serialised into the home, shops and search pages for
+ * their client components. The whole row also carries the owner's PAN
+ * (encrypted), its holder name and last four digits, the registration fee and
+ * what has been paid of it, referral and fee ids, the delivery pickup point and
+ * who verified what — so public search selects this allowlist instead. A new
+ * column stays private until it is added here.
+ */
+const PUBLIC_SHOP_COLUMNS = {
+  id: shops.id,
+  name: shops.name,
+  slug: shops.slug,
+  ownerName: shops.ownerName,
+  phone: shops.phone,
+  email: shops.email,
+  addressLine1: shops.addressLine1,
+  addressLine2: shops.addressLine2,
+  area: shops.area,
+  city: shops.city,
+  state: shops.state,
+  pincode: shops.pincode,
+  landmark: shops.landmark,
+  latitude: shops.latitude,
+  longitude: shops.longitude,
+  shopType: shops.shopType,
+  status: shops.status,
+  classification: shops.classification,
+  logoUrl: shops.logoUrl,
+  photos: shops.photos,
+  openingHours: shops.openingHours,
+  deliveryAvailable: shops.deliveryAvailable,
+  deliveryFeePaise: shops.deliveryFeePaise,
+  freeDeliveryAbovePaise: shops.freeDeliveryAbovePaise,
+  preparationTimeMinutes: shops.preparationTimeMinutes,
+  description: shops.description,
+  legalBusinessName: shops.legalBusinessName,
+  gstin: shops.gstin,
+  fssaiLicenseNumber: shops.fssaiLicenseNumber,
+  returnPolicyText: shops.returnPolicyText,
+  createdAt: shops.createdAt,
+  updatedAt: shops.updatedAt,
+};
+
+export type PublicShop = Pick<Shop, keyof typeof PUBLIC_SHOP_COLUMNS>;
+
+/**
+ * Public shop search (§15). Only APPROVED shops are ever returned, and only
+ * their public columns (see PUBLIC_SHOP_COLUMNS).
+ */
 export async function searchShops(
   filters: ShopSearchFilters = {},
-): Promise<Shop[]> {
+): Promise<PublicShop[]> {
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
@@ -660,15 +739,15 @@ export async function searchShops(
     const term = `%${filters.query}%`;
     conditions.push(
       or(
-        like(shops.name, term),
-        like(shops.area, term),
-        like(shops.city, term),
-        like(shops.description, term),
+        ilike(shops.name, term),
+        ilike(shops.area, term),
+        ilike(shops.city, term),
+        ilike(shops.description, term),
       )!,
     );
   }
-  if (filters.city) conditions.push(like(shops.city, `%${filters.city}%`));
-  if (filters.area) conditions.push(like(shops.area, `%${filters.area}%`));
+  if (filters.city) conditions.push(ilike(shops.city, `%${filters.city}%`));
+  if (filters.area) conditions.push(ilike(shops.area, `%${filters.area}%`));
   if (filters.pincode) conditions.push(eq(shops.pincode, filters.pincode));
   if (filters.classification) {
     conditions.push(eq(shops.classification, filters.classification));
@@ -681,7 +760,7 @@ export async function searchShops(
   }
 
   return db
-    .select()
+    .select(PUBLIC_SHOP_COLUMNS)
     .from(shops)
     .where(and(...conditions))
     .orderBy(asc(shops.name))
@@ -725,11 +804,11 @@ export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
     const term = `%${filters.query}%`;
     conditions.push(
       or(
-        like(shops.name, term),
-        like(shops.ownerName, term),
-        like(shops.phone, term),
-        like(shops.registrationNumber, term),
-        like(shops.city, term),
+        ilike(shops.name, term),
+        ilike(shops.ownerName, term),
+        ilike(shops.phone, term),
+        ilike(shops.registrationNumber, term),
+        ilike(shops.city, term),
       )!,
     );
   }
@@ -766,7 +845,7 @@ export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
     conditions.push(lte(shops.registrationDate, filters.registeredTo));
   }
   if (filters.referralCode) {
-    conditions.push(like(referralCodes.code, filters.referralCode));
+    conditions.push(ilike(referralCodes.code, filters.referralCode));
   }
 
   const rows = await db
@@ -794,7 +873,7 @@ export { isShopOpenNow } from "@/lib/shop-hours";
 
 export async function countShopsByStatus(): Promise<Record<string, number>> {
   const rows = await db
-    .select({ status: shops.status, count: sql<number>`count(*)` })
+    .select({ status: shops.status, count: sql<number>`count(*)::int` })
     .from(shops)
     .where(isNull(shops.deletedAt))
     .groupBy(shops.status);

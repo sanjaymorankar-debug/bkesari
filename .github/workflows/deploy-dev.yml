@@ -4,8 +4,10 @@
 # hand for now, deliberately: a mis-aimed deploy to production is the one
 # mistake this stage cannot afford. The guard enforces that mechanically.
 #
-# No database credential is stored in GitHub. The server's own .env holds them,
-# and rsync neither writes nor deletes it — see the "Upload" step.
+# No database credential is stored in GitHub. The server's own .env holds them
+# (the dev Neon branch's pooled DATABASE_URL and direct DATABASE_URL_UNPOOLED,
+# see DEPLOYMENT.md §1), and rsync neither writes nor deletes it — see the
+# "Upload" step. Nothing in this workflow connects to Neon.
 name: Deploy dev
 
 on:
@@ -28,28 +30,35 @@ env:
 
 jobs:
   # The same suite ci.yml runs, so the build that gets published is one that
-  # passed its tests against a real MySQL.
+  # passed its tests against a real PostgreSQL.
   check:
     runs-on: ubuntu-latest
 
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        # Docker Hub's official image, the one bkesari-platform's CI uses. This
+        # was public.ecr.aws/docker/library/postgres:16 to dodge Docker Hub's
+        # anonymous rate limit, until ECR Public refused every pull with "Data
+        # limit exceeded" (2026-10-24). If Docker Hub's limit bites again,
+        # mirror.gcr.io/library/postgres:16 is the next mirror to try.
+        image: postgres:16
         env:
-          MYSQL_ROOT_PASSWORD: mysql
-          MYSQL_DATABASE: dairy_bakery_test
-        ports: ["3306:3306"]
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dairy_bakery_test
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -umysql -pmysql || mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-cmd="pg_isready -h 127.0.0.1 -U postgres -d dairy_bakery_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
 
     env:
-      # A throwaway CI database. Nothing here reaches any real tier: the dev,
-      # test and production credentials live only in each server's own .env.
-      DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
-      TEST_DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
+      # A throwaway CI database. Nothing here reaches any real tier or Neon:
+      # the dev, test and production credentials live only in each server's own
+      # .env. With no DATABASE_URL_UNPOOLED, migrations use DATABASE_URL.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
       CRON_SECRET: ci-only-cron-secret
 
@@ -111,7 +120,7 @@ jobs:
           # time, so all three must be present or `next build` dies collecting
           # page data — none of them is connected to or used at runtime, which
           # comes from the server's own .env.
-          DATABASE_URL: mysql://build:build@127.0.0.1:3306/build
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
           AUTH_SECRET: build-only-not-used-at-runtime
           CRON_SECRET: build-only-not-used-at-runtime
           APP_ENV: dev
@@ -147,6 +156,32 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           # 65002 is Hostinger's SSH port; DEV_SSH_PORT overrides it.
           echo "SSH_CMD=ssh -i $HOME/.ssh/id_deploy -p ${DEPLOY_PORT:-65002} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" >> "$GITHUB_ENV"
+
+      # This build speaks only PostgreSQL. A server whose .env still points at
+      # MySQL would take the upload and restart into a site that cannot reach
+      # its database, so the .env is checked first — read-only, and without
+      # printing any value from it.
+      - name: Refuse a server not configured for PostgreSQL
+        run: |
+          set -euo pipefail
+          $SSH_CMD "$DEPLOY_USER@$DEPLOY_HOST" 'bash -seuo pipefail' <<REMOTE
+          cd '$DEPLOY_DIR'
+          if [ ! -f .env ]; then
+            echo "::error::No .env in the deploy directory. Create it from .env.example with a PostgreSQL DATABASE_URL first."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]*DATABASE_URL=["'"'"']?mysql' .env \
+             || grep -Eq '^[[:space:]]*DB_PORT=["'"'"']?3306' .env; then
+            echo "::error::The server .env still points at MySQL. This app now needs a PostgreSQL database — see DEPLOYMENT.md."
+            exit 1
+          fi
+          if ! grep -Eq '^[[:space:]]*DATABASE_URL=["'"'"']?postgres(ql)?://' .env \
+             && ! grep -Eq '^[[:space:]]*DB_NAME=.' .env; then
+            echo "::error::The server .env has no PostgreSQL DATABASE_URL (or DB_* fields). See DEPLOYMENT.md."
+            exit 1
+          fi
+          echo "Server .env is configured for PostgreSQL."
+          REMOTE
 
       - name: Upload
         run: |
@@ -209,13 +244,12 @@ jobs:
           REMOTE
 
       # Migrations are NOT applied automatically. Schema changes on this estate
-      # are reviewed and applied through phpMyAdmin (or by running
-      # `npm run db:migrate` over SSH), so a deploy can never alter a database
-      # on its own. This step only tells you whether this push brought any.
-      # Migrations are NOT applied automatically. Schema changes on this estate
-      # are reviewed and applied through phpMyAdmin (or by running
-      # `npm run db:migrate` over SSH), so a deploy can never alter a
-      # database on its own. This step only reports what the push brought.
+      # are reviewed and applied by hand, so a deploy can never alter a database
+      # on its own: from a checkout, `DATABASE_URL_UNPOOLED=<the dev branch's
+      # direct URL> npm run db:migrate`, or the migration SQL in Neon's SQL
+      # Editor. Not over SSH: the server gets neither src/ nor the dev
+      # dependencies (tsx) that the migrate script needs. This step only reports
+      # what the push brought.
       - name: Report migrations included in this deploy
         env:
           # The branch head before this push. Empty on a manual run.
@@ -244,7 +278,8 @@ jobs:
               echo "### Migrations ($scope)"
               echo
               echo "The code is live, but this workflow does **not** change the"
-              echo "schema. Confirm these are applied to the dev database:"
+              echo "schema. Apply these to the dev Neon branch over its direct URL"
+              echo "(DATABASE_URL_UNPOOLED; see DEPLOYMENT.md §4):"
               echo
               echo '```'
               echo "$added"

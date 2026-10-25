@@ -25,7 +25,7 @@ import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
-import { orders, shops, users, wallets } from "@/server/db/schema";
+import { orders, users, wallets } from "@/server/db/schema";
 import { listAuditLog } from "@/server/services/audit-log-query";
 import { listPendingProductApprovals } from "@/server/services/catalogue";
 import { getComplianceChecklist } from "@/server/services/compliance";
@@ -52,6 +52,7 @@ import {
   listShopsByStatus,
   searchShops,
   searchShopsAdmin,
+  type PublicShop,
 } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
 import { listUsers } from "@/server/services/users";
@@ -111,14 +112,14 @@ export default async function AdminPage() {
     db
       .select({
         value: count(),
-        revenue: sql<number>`CAST(COALESCE(SUM(${orders.totalPaise}), 0) AS SIGNED)`,
+        revenue: sql<number>`COALESCE(SUM(${orders.totalPaise}), 0)::bigint`,
       })
       .from(orders)
       .where(eq(orders.status, "DELIVERED")),
     showFinancials
       ? db
           .select({
-            total: sql<number>`CAST(COALESCE(SUM(${wallets.balancePaise}), 0) AS SIGNED)`,
+            total: sql<number>`COALESCE(SUM(${wallets.balancePaise}), 0)::bigint`,
           })
           .from(wallets)
       : Promise.resolve([{ total: 0 }]),
@@ -562,7 +563,7 @@ export default async function AdminPage() {
   );
 }
 
-function serialiseShop(shop: typeof shops.$inferSelect) {
+function serialiseShop(shop: PublicShop) {
   return {
     id: shop.id,
     name: shop.name,

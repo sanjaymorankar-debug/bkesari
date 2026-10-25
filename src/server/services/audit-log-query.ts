@@ -111,8 +111,8 @@ export async function listAuditLog(
 /** Recent audit activity count, for the admin KPI row (§23). */
 export async function countRecentAuditActivity(hours = 24): Promise<number> {
   const [row] = await db
-    .select({ n: sql<number>`COUNT(*)` })
+    .select({ n: sql<number>`COUNT(*)::int` })
     .from(auditLogs)
-    .where(sql`${auditLogs.createdAt} > DATE_SUB(NOW(), INTERVAL ${hours} HOUR)`);
+    .where(sql`${auditLogs.createdAt} > NOW() - (${hours} * INTERVAL '1 hour')`);
   return row?.n ?? 0;
 }

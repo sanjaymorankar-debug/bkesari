@@ -4,14 +4,73 @@
  * Secrets are read here and nowhere else. Nothing in this file may be imported
  * from a Client Component — the values are server-only.
  */
+import { isIP } from "node:net";
+
 import { z } from "zod";
+
+/** A proxy the app trusts to have appended the address it saw to X-Forwarded-For. */
+export interface TrustedProxy {
+  address: string;
+  /** 32 or 128 for a single address. */
+  prefix: number;
+  family: "ipv4" | "ipv6";
+}
+
+/**
+ * One TRUSTED_PROXIES entry: an IP address (192.0.2.10, 2001:db8::10) or a
+ * CIDR range (10.0.0.0/8, 2001:db8::/32). Null when it is neither.
+ */
+function parseTrustedProxy(entry: string): TrustedProxy | null {
+  const [address, bits, extra] = entry.split("/");
+  const version = isIP(address);
+  if (version === 0 || extra !== undefined) return null;
+  const max = version === 4 ? 32 : 128;
+  const prefix = bits === undefined ? max : /^\d{1,3}$/.test(bits) ? Number(bits) : -1;
+  if (prefix < 0 || prefix > max) return null;
+  return { address, prefix, family: version === 4 ? "ipv4" : "ipv6" };
+}
+
+function splitList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A PostgreSQL connection string. Only the postgres:// and postgresql://
+ * schemes are accepted, so a .env still carrying a mysql:// URL from before the
+ * move to PostgreSQL fails at startup with a clear message rather than as an
+ * obscure driver error on the first query. TLS is configured in the URL itself
+ * (e.g. `?sslmode=require`, which managed providers expect).
+ */
+function postgresUrl(name: string) {
+  return z
+    .string()
+    .min(1, `${name} is required`)
+    .regex(
+      /^postgres(?:ql)?:\/\//i,
+      `${name} must be a PostgreSQL URL (postgresql://user:password@host:5432/dbname)`,
+    );
+}
 
 const serverEnvSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
 
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  /** The connection string the app uses at runtime (on Neon, the pooled endpoint). */
+  DATABASE_URL: postgresUrl("DATABASE_URL"),
+
+  /**
+   * The direct (unpooled) connection string, for migrations and other schema
+   * work. Neon gives every database a pooled endpoint (PgBouncer in
+   * transaction mode; its host has `-pooler` in it) and a direct one:
+   * DATABASE_URL holds the pooled one, which the app uses at runtime, and this
+   * holds the direct one. Unset, migrations use DATABASE_URL, so a local
+   * database or CI needs only one variable. See databaseUrlForMigrations().
+   */
+  DATABASE_URL_UNPOOLED: postgresUrl("DATABASE_URL_UNPOOLED").optional(),
 
   /**
    * Connection pool ceiling. Managed providers cap concurrent connections
@@ -98,12 +157,36 @@ const serverEnvSchema = z.object({
    * payment callbacks, which cannot rely on a request being in scope.
    */
   BASE_URL: z.string().url().optional(),
+
+  /**
+   * Comma-separated IP addresses or CIDR ranges of the proxies in front of the
+   * app that are not on loopback (loopback is always trusted). The anonymous
+   * rate limits key on the visitor's address, read from X-Forwarded-For from
+   * the right past these (see clientKey() in src/server/api/rate-limit.ts).
+   * Unset, a front end that reaches the app from another address is taken for
+   * the visitor, so everyone behind it shares one bucket: over-limiting, never
+   * a bypass. On Hostinger: the server's own IP, once the real chain is
+   * confirmed (DEPLOYMENT.md §2).
+   */
+  TRUSTED_PROXIES: z
+    .string()
+    .optional()
+    .superRefine((value, ctx) => {
+      for (const entry of splitList(value)) {
+        if (!parseTrustedProxy(entry)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `${JSON.stringify(entry)} is not an IP address or CIDR range (e.g. 192.0.2.10, 10.0.0.0/8)`,
+          });
+        }
+      }
+    }),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
 /**
- * Builds a mysql:// URL from the discrete `DB_*` variables, or returns
+ * Builds a postgresql:// URL from the discrete `DB_*` variables, or returns
  * undefined when the essential ones are missing so that the schema reports the
  * absence of DATABASE_URL rather than producing a half-formed URL.
  */
@@ -114,26 +197,43 @@ function composeDatabaseUrl(
   const user = raw.DB_USER;
   if (!name || !user) return undefined;
   const host = raw.DB_HOST ?? "localhost";
-  const port = raw.DB_PORT ?? "3306";
+  const port = raw.DB_PORT ?? "5432";
   // The password routinely contains characters that are not URL-safe.
   const credentials = raw.DB_PASS
     ? `${encodeURIComponent(user)}:${encodeURIComponent(raw.DB_PASS)}`
     : encodeURIComponent(user);
-  return `mysql://${credentials}@${host}:${port}/${name}`;
+  // Managed PostgreSQL providers require TLS; DB_SSLMODE=require says so.
+  const query = raw.DB_SSLMODE
+    ? `?sslmode=${encodeURIComponent(raw.DB_SSLMODE)}`
+    : "";
+  return `postgresql://${credentials}@${host}:${port}/${encodeURIComponent(name)}${query}`;
 }
 
 let cached: ServerEnv | null = null;
 
-export function getEnv(): ServerEnv {
-  if (cached) return cached;
-
-  // Treat an empty variable (`FOO=` in a .env file) as unset. Otherwise an
-  // optional secret becomes "" rather than undefined, and `??` fallbacks
-  // silently fail to trigger.
+/**
+ * process.env with empty values (`FOO=` in a .env file) treated as unset.
+ * Otherwise an optional secret becomes "" rather than undefined, and `??`
+ * fallbacks silently fail to trigger.
+ */
+function readRawEnv(): Record<string, string | undefined> {
   const raw: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
     raw[key] = value === "" ? undefined : value;
   }
+  // Hosting control panels usually issue database credentials as separate
+  // fields (host, port, name, user, password), and the deployment brief
+  // specifies a .env in that shape. The driver wants one URL, so it is composed
+  // here when not supplied directly — both styles of .env work, and a full
+  // DATABASE_URL still wins if both are present.
+  raw.DATABASE_URL ??= composeDatabaseUrl(raw);
+  return raw;
+}
+
+export function getEnv(): ServerEnv {
+  if (cached) return cached;
+
+  const raw = readRawEnv();
 
   // Vite (and so Vitest) puts its own BASE_URL="/" into the process
   // environment, which is a base *path*, not the absolute origin meant here.
@@ -142,12 +242,6 @@ export function getEnv(): ServerEnv {
   if (raw.BASE_URL && !/^https?:\/\//i.test(raw.BASE_URL)) {
     raw.BASE_URL = undefined;
   }
-
-  // Hostinger's hPanel issues database credentials as separate fields, and the
-  // deployment brief specifies a .env in that shape. The driver wants one URL,
-  // so it is composed here when not supplied directly — both styles of .env
-  // work, and a full DATABASE_URL still wins if both are present.
-  raw.DATABASE_URL ??= composeDatabaseUrl(raw);
 
   const parsed = serverEnvSchema.safeParse(raw);
   if (!parsed.success) {
@@ -158,6 +252,46 @@ export function getEnv(): ServerEnv {
   }
   cached = parsed.data;
   return cached;
+}
+
+/**
+ * The connection string for migrations and other schema work, and the name of
+ * the variable it came from.
+ *
+ * Normally the direct endpoint, DATABASE_URL_UNPOOLED, when one is configured,
+ * else DATABASE_URL: DDL and the migrator's own bookkeeping belong on a direct
+ * connection, not behind a transaction-mode pooler. One exception, because
+ * .env is loaded underneath whatever the shell already set: when the shell sets
+ * DATABASE_URL and not DATABASE_URL_UNPOOLED, the shell's DATABASE_URL wins,
+ * so `DATABASE_URL=... npm run db:migrate` migrates the database it names and
+ * never a direct URL that happens to sit in .env for another one. Pass the
+ * variables the shell set, read before .env was loaded, as `setInShell`.
+ *
+ * Validates only that variable, not the whole app configuration, so migrating
+ * a database needs its URL and nothing else — not the app's AUTH_SECRET and
+ * CRON_SECRET.
+ */
+export function databaseUrlForMigrations(
+  setInShell: ReadonlySet<string> = new Set(),
+): { variable: "DATABASE_URL_UNPOOLED" | "DATABASE_URL"; url: string } {
+  const raw = readRawEnv();
+  const shellNamesPooledOnly =
+    setInShell.has("DATABASE_URL") && !setInShell.has("DATABASE_URL_UNPOOLED");
+  const variable =
+    raw.DATABASE_URL_UNPOOLED && !shellNamesPooledOnly
+      ? "DATABASE_URL_UNPOOLED"
+      : "DATABASE_URL";
+  const value = raw[variable];
+  if (!value) {
+    throw new Error(
+      "Set DATABASE_URL_UNPOOLED (the direct connection string) or DATABASE_URL to migrate a database.",
+    );
+  }
+  const parsed = postgresUrl(variable).safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`Invalid database configuration: ${parsed.error.issues[0].message}`);
+  }
+  return { variable, url: parsed.data };
 }
 
 /** True when real Cashfree credentials are configured. */
@@ -188,6 +322,12 @@ export function isPanProviderConfigured(): boolean {
 
 export function isPanEncryptionConfigured(): boolean {
   return Boolean(getEnv().PAN_ENCRYPTION_KEY);
+}
+
+/** TRUSTED_PROXIES, parsed. Empty unless the variable is set. */
+export function trustedProxies(): TrustedProxy[] {
+  // Every entry parses: getEnv() refused the configuration otherwise.
+  return splitList(getEnv().TRUSTED_PROXIES).map((entry) => parseTrustedProxy(entry)!);
 }
 
 /**

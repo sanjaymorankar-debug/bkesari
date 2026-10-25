@@ -16,25 +16,34 @@ Everything else is prepared: schema, migrations, seed, CI, and the app itself.
 
 ## Step 1 — Create the database (~3 minutes)
 
-Hostinger's Web/Cloud plans, including Node.js Web Apps, **do not support
-PostgreSQL** — MySQL only. PostgreSQL needs a VPS or an external provider. The
-app needs nothing but a connection string, so an external managed Postgres is
-the least-effort path.
+The app's database is **PostgreSQL** (and only PostgreSQL). Hostinger's
+Web/Cloud plans, including Node.js Web Apps, **do not support PostgreSQL** —
+hPanel offers MySQL only, and this app no longer runs on MySQL. PostgreSQL needs
+a VPS or an external provider. The app needs nothing but a connection string, so
+an external managed Postgres is the least-effort path. The steps below use Neon
+as the example; Supabase, AWS RDS or any other PostgreSQL 14+ works the same way
+through its own console.
+
+> Coming from the earlier MySQL version with data you want to keep? See
+> `DEPLOYMENT.md §7a` before going further.
 
 1. Sign up at **https://neon.tech** (free tier is ample for staging).
 2. Create a project — pick the region closest to your users (Singapore or
-   Mumbai for India).
-3. Copy the connection string. It looks like:
+   Mumbai for India) — and a branch named `test` for this tier.
+3. On that branch create the role `bk_milk_app` and the database `bk_milk` owned by
+   it (the branch's Roles and Databases pages).
+4. Open **Connect**, pick database `bk_milk` and role `bk_milk_app`, and copy the
+   connection string twice:
+   - with **Connection pooling** on — this becomes `DATABASE_URL` (step 4):
 
-```
-postgresql://user:password@ep-xxxx-yyyy.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
-```
+     ```
+     postgresql://bk_milk_app:<password>@ep-xxxx-yyyy-pooler.ap-southeast-1.aws.neon.tech/bk_milk?sslmode=require&channel_binding=require
+     ```
+   - with it off — the direct endpoint, `DATABASE_URL_UNPOOLED`, used for
+     migrations (step 5).
 
-Keep it handy — it becomes `DATABASE_URL` in step 4.
-
-> Neon gives you a **pooled** and a **direct** connection string. Use the
-> **direct** one for migrations (step 5) and either for the app; the code reads
-> `sslmode` from the URL and enables TLS automatically.
+Keep `?sslmode=require&channel_binding=require` on both; the code turns them
+into verified TLS. DEPLOYMENT.md §1 has the details.
 
 ---
 
@@ -87,7 +96,8 @@ openssl rand -hex 32      # CRON_SECRET
 | Variable | Value |
 |---|---|
 | `NODE_ENV` | `production` |
-| `DATABASE_URL` | the Neon string from step 1 |
+| `DATABASE_URL` | the **pooled** Neon string from step 1 |
+| `DATABASE_URL_UNPOOLED` | the **direct** Neon string from step 1 |
 | `DATABASE_POOL_MAX` | `10` |
 | `AUTH_SECRET` | output of `openssl rand -base64 32` |
 | `AUTH_URL` | `https://test.bkesari.com` |
@@ -97,6 +107,7 @@ openssl rand -hex 32      # CRON_SECRET
 | `BOOTSTRAP_ADMIN_EMAILS` | `agtcipl@gmail.com` |
 | `APP_TIMEZONE` | `Asia/Kolkata` |
 | `SUBSCRIPTION_CUTOFF_HOUR` | `20` |
+| `TRUSTED_PROXIES` | leave blank at first; after the first deploy, run the two-network check in [DEPLOYMENT.md §2, "Trusted proxies"](./DEPLOYMENT.md#trusted-proxies-trusted_proxies) and set it to the server's own IP if visitors share one rate-limit bucket |
 
 Leave the `CASHFREE_*` variables **unset on staging** — the app then runs in
 mock payment mode, so you can exercise the full wallet flow without moving real
@@ -115,9 +126,11 @@ Run from your own machine, pointed at Neon. Nothing here touches Hostinger.
 cd dairy-bakery
 npm install
 
-export DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require"
+export DATABASE_URL_UNPOOLED="postgresql://...neon.tech/bk_milk?sslmode=require&channel_binding=require"   # direct
+export DATABASE_URL="postgresql://...-pooler...neon.tech/bk_milk?sslmode=require&channel_binding=require"  # pooled
+export AUTH_SECRET=x CRON_SECRET=x   # the seed loads the app's config; it uses neither
 
-npm run db:migrate              # creates all 28 tables
+npm run db:migrate              # creates all 48 tables, over the direct URL
 npm run db:seed -- --minimal    # roles, permissions, dairy + bakery catalogue
 ```
 
@@ -131,7 +144,7 @@ npm run db:seed                 # adds demo shops and products
 Verify:
 
 ```bash
-psql "$DATABASE_URL" -c "SELECT count(*) FROM products;"   # expect 40
+psql "$DATABASE_URL_UNPOOLED" -c "SELECT count(*) FROM products;"   # expect 373
 ```
 
 ---

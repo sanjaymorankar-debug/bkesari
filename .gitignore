@@ -42,3 +42,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env
+
+# Testing agent: gate state and run reports (local only)
+.claude/state/
+.claude/test-runs/

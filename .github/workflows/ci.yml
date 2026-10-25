@@ -1,7 +1,7 @@
 name: CI
 
 # Runs the full suite on every push and pull request. The integration tests need
-# a real MySQL, so one is provided as a service container — the guarantees they
+# a real PostgreSQL, so one is provided as a service container — the guarantees they
 # check (row locking, unique constraints, CHECK constraints) cannot be verified
 # against a mock.
 on:
@@ -18,23 +18,31 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      mysql:
-        # Matches the MySQL 8 that Hostinger provides; CHECK constraints need
-        # 8.0.16 or newer, which the schema relies on.
-        image: mysql:8.0
+      postgres:
+        # Docker Hub's official image, the one bkesari-platform's CI uses. This
+        # was public.ecr.aws/docker/library/postgres:16 to dodge Docker Hub's
+        # anonymous rate limit, until ECR Public refused every pull with "Data
+        # limit exceeded" (2026-10-24). If Docker Hub's limit bites again,
+        # mirror.gcr.io/library/postgres:16 is the next mirror to try.
+        image: postgres:16
         env:
-          MYSQL_ROOT_PASSWORD: mysql
-          MYSQL_DATABASE: dairy_bakery_test
-        ports: ["3306:3306"]
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dairy_bakery_test
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -umysql -pmysql || mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-cmd="pg_isready -h 127.0.0.1 -U postgres -d dairy_bakery_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
 
+    # CI never reaches Neon or any real tier: one local PostgreSQL service, and
+    # one URL for everything (with no DATABASE_URL_UNPOOLED, migrations use
+    # DATABASE_URL). tests/setup.ts refuses a TEST_DATABASE_URL that is not on
+    # this machine.
     env:
-      DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
-      TEST_DATABASE_URL: mysql://root:mysql@127.0.0.1:3306/dairy_bakery_test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dairy_bakery_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
       CRON_SECRET: ci-only-cron-secret
 

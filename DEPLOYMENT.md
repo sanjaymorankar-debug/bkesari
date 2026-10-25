@@ -1,49 +1,78 @@
 # Deployment
 
-Targets Hostinger Node.js Web App Hosting (which auto-detects Next.js and runs
-`npm run build` / `npm start`), but nothing here is Hostinger-specific — any
-Node 20+ host with a **MySQL 8.0.16+** database works. (8.0.16 is where MySQL
-began enforcing `CHECK` constraints, which the schema relies on.)
+Any Node 20+ host that can reach a **PostgreSQL 14+** database works (CI and
+local development use PostgreSQL 16). The app itself has so far been hosted on
+Hostinger Node.js Web App Hosting, which auto-detects Next.js and runs
+`npm run build` / `npm start`.
+
+The database is **PostgreSQL on Neon**. Hostinger's shared and cloud web hosting
+offers only MySQL/MariaDB, so the app runs there and its database lives on Neon.
+Any other PostgreSQL 14+ works the same way (see the end of §1).
 
 For the dev tier this is automated: pushing to `dev` deploys through
 `.github/workflows/deploy-dev.yml`. See `DEPLOY.md` in the `bkesari-platform`
 repository, Part 6, for the one-time secret setup. Everything below is the
 manual procedure, and is still what test and production use.
 
-## 1. Provision MySQL
+## 1. Provision PostgreSQL on Neon
 
-On Hostinger, hPanel → Databases → MySQL Databases creates the database and its
-user together, and the host is `localhost`. Each tier gets its **own** database
-and never connects to another's:
+Its own Neon project, `bkesari-milk` (Singapore), one branch per tier. On every branch the database is named
+`bk_milk` and is owned by the role `bk_milk_app`:
 
-| Tier | Database |
-|---|---|
-| dev | `u879099820_main_milk_dev` |
-| test | `u879099820_main_milk_test` (not created yet) |
-| production | `u879099820_main_milk_prod` (not created yet) |
+| Neon branch | Serves | That server's `.env` holds |
+|---|---|---|
+| `production` | `bkesari.com/milk` | the production branch's two URLs, nothing else |
+| `test` | `test.bkesari.com/milk` | the test branch's two URLs, nothing else |
+| `dev` | `dev.bkesari.com/milk` | the dev branch's two URLs, nothing else |
 
-Database names are case-sensitive on Linux — match hPanel exactly.
+A tier never connects to another tier's branch.
 
-Elsewhere, create the database and a dedicated application user by hand. Do
-**not** use `root` for the app:
+Create the role and the database on each branch in the Neon console (the
+branch's Roles and Databases pages). Neon makes every role it creates a member
+of `neon_superuser`, so `bk_milk_app` can run the migrations, and could create an
+extension if a later migration needed one; none does today.
+
+Then open **Connect** on the branch, pick database `bk_milk` and role `bk_milk_app`,
+and copy the connection string twice:
+
+| "Connection pooling" | Goes in | Used for |
+|---|---|---|
+| on (the host has `-pooler` in it) | `DATABASE_URL` | the app at runtime |
+| off (the direct endpoint) | `DATABASE_URL_UNPOOLED` | `npm run db:migrate`, drizzle-kit, `pg_dump` |
+
+The pooled endpoint is PgBouncer in transaction mode: right for the app, whose
+work is short transactions, and wrong for DDL, session settings and long-lived
+single connections, which is why migrations go direct. With
+`DATABASE_URL_UNPOOLED` unset, migrations use `DATABASE_URL`, so a local
+database or CI needs only the one variable.
+
+Keep the `?sslmode=require&channel_binding=require` Neon puts on the end. The
+app turns `sslmode=require` into TLS with the server certificate verified
+(Neon's certificate is publicly trusted), and `channel_binding=require` into a
+SCRAM login bound to that TLS channel whenever the server offers it, which
+Neon's endpoints do. `sslmode=no-verify` skips the certificate check and exists
+only for a provider whose CA Node does not trust. Characters such as
+`@ : / # ?` in a password must be percent-encoded inside a URL.
+
+Neon suspends an idle compute and drops its connections. The app expects that:
+a dropped connection is logged as `[db] connection closed by the server`, a
+transaction caught by it fails on its own, the next query opens a new
+connection, and the 30-second connect timeout covers the compute's cold start. Keep `DATABASE_POOL_MAX` modest (the pooler accepts far
+more clients than the compute has connections).
+
+**Without Neon.** On a PostgreSQL server you run yourself, create the role and
+database by hand, and do **not** use the `postgres` superuser for the app:
 
 ```sql
-CREATE DATABASE dairy_bakery CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'dairy_app'@'localhost' IDENTIFIED BY '<strong-password>';
-GRANT ALL PRIVILEGES ON dairy_bakery.* TO 'dairy_app'@'localhost';
-FLUSH PRIVILEGES;
+CREATE ROLE bk_milk_app LOGIN PASSWORD '<strong-password>';
+CREATE DATABASE bk_milk OWNER bk_milk_app;
 ```
 
-Fill in `DB_HOST`, `DB_NAME`, `DB_USER` and `DB_PASS` in the server's `.env`
-(see `.env.example`), or give the whole connection string at once:
-
-```
-DATABASE_URL=mysql://dairy_app:<password>@localhost:3306/dairy_bakery
-```
-
-On Hostinger the database is local and the connection does not cross a network,
-so no TLS is used. Against a managed provider that requires TLS, add `?ssl=true`
-— the connection code reads that flag rather than assuming either way.
+Owning the database lets the role run the migrations. Put its URL in
+`DATABASE_URL` (add `?sslmode=require` unless it is on the same machine or a
+private network), or fill in `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
+`DB_PASS` and `DB_SSLMODE` instead. If there is a pooler in front, give the
+direct address as `DATABASE_URL_UNPOOLED`.
 
 ## 2. Configure environment variables
 
@@ -52,10 +81,14 @@ Set these in the host's environment-variable UI — never commit them.
 ```bash
 NODE_ENV=production
 APP_ENV=prod
-DATABASE_URL=mysql://dairy_app:...@localhost:3306/dairy_bakery
+BASE_PATH=/milk
+BASE_URL=https://bkesari.com/milk
+DATABASE_URL=postgresql://bk_milk_app:<password>@<endpoint>-pooler.<region>.aws.neon.tech/bk_milk?sslmode=require&channel_binding=require
+DATABASE_URL_UNPOOLED=postgresql://bk_milk_app:<password>@<endpoint>.<region>.aws.neon.tech/bk_milk?sslmode=require&channel_binding=require
+DATABASE_POOL_MAX=5
 
 AUTH_SECRET=<openssl rand -base64 32>
-AUTH_URL=https://your-domain.com
+AUTH_URL=https://bkesari.com/milk
 
 AUTH_GOOGLE_ID=<google oauth client id>
 AUTH_GOOGLE_SECRET=<google oauth client secret>
@@ -69,6 +102,9 @@ BOOTSTRAP_ADMIN_EMAILS=you@your-domain.com
 
 APP_TIMEZONE=Asia/Kolkata
 SUBSCRIPTION_CUTOFF_HOUR=20
+
+# Blank at first; then the server's own IP, once the chain is confirmed (below).
+TRUSTED_PROXIES=
 ```
 
 Generate secrets properly:
@@ -80,6 +116,48 @@ openssl rand -hex 32      # CRON_SECRET
 
 `BOOTSTRAP_ADMIN_EMAILS` grants ADMIN on **first sign-in only**. Sign in once
 with that address, verify you can reach `/admin`, then remove the variable.
+
+### Trusted proxies (`TRUSTED_PROXIES`)
+
+The anonymous rate limits count per visitor address: grievance submission (5
+per 10 minutes), grievance status lookup (the same), and the cron endpoint (30 a
+minute, counting only requests that carry the right token). The address comes from
+`X-Forwarded-For`. Every proxy appends the address it received the request from,
+and Next passes the header on unchanged. On bkesari.com the chain is visitor →
+Hostinger's front end → the hub (bkesari-platform `portal/proxy.js`, which
+appends) → the app, through Hostinger's front end again when the hub reaches the
+app by its hostname. Whatever the visitor sends comes first, so the app reads
+the header from the right: it skips trusted proxies and takes the first other
+address as the visitor's. Loopback is always trusted. `TRUSTED_PROXIES` adds the
+others, as IPs or CIDR ranges, comma-separated. A malformed entry stops the app
+at startup.
+
+**Unset, behind a front end that is not on loopback, every visitor shares one
+bucket per limit.** One visitor can then use up the whole site's 5 grievance
+submissions per 10 minutes. (The cron endpoint checks the token before it
+counts, so tokenless requests cannot hold off the scheduler's run.) That errs toward
+over-limiting. It never lets a visitor dodge a limit.
+
+Nobody has yet confirmed whether Hostinger's front end appends to the header or
+replaces it, or how many hops there are. So the app counts no hops, and the
+variable is set from what the live chain shows, on the first deploy of a tier:
+
+1. **The limit holds.** From one network, request
+   `https://<tier host>/milk/api/grievances/lookup` six times, each with a
+   different made-up header, e.g.
+   `curl -s -o /dev/null -w '%{http_code}\n' -H "X-Forwarded-For: 203.0.113.$i" …`.
+   Each answer is 422 (no ticket was given), and the sixth must be 429. If it is
+   not, stop: the chain is not what this section assumes.
+2. **Visitors are told apart.** Straight after, request it once from a second
+   network (a phone off Wi-Fi). A 422 means visitors already get buckets of
+   their own, and there is nothing to set. A 429 means they share one: go on.
+3. Set `TRUSTED_PROXIES` to the server's own IP (`curl -s https://api.ipify.org`
+   over SSH on the server), redeploy, wait 10 minutes and repeat both steps.
+   The second network must now get 422.
+
+Trusting an address trusts every program that can send from it. On shared
+hosting that includes the other sites on the same server, which could then pick
+their own key, as anyone could before.
 
 ### Google OAuth
 
@@ -110,12 +188,29 @@ Cashfree sandbox keys on staging so no real money moves.
 
 ## 4. Run migrations
 
-Migrations are plain SQL under `drizzle/` and are not run automatically.
+Migrations are plain SQL under `drizzle/` and are not run automatically, and
+not on the app server either: a deploy ships neither `src/` nor the dev
+dependencies the migrate script needs. Run them from a checkout, over the
+tier's **direct** URL. The history starts from a single PostgreSQL baseline,
+`drizzle/0000_postgres_baseline.sql`; `database/schema.sql` is the same schema
+as one psql-runnable file (regenerate it with `scripts/dump-schema.sh`). Apply
+one or the other to an empty database, not both — only `db:migrate` records
+what it applied, so later migrations can follow it.
 
 ```bash
-npm run db:migrate                 # apply pending migrations
-npm run db:seed -- --minimal       # reference data only — first deploy
+# Only this tier's direct URL is needed; no app secrets.
+DATABASE_URL_UNPOOLED='<the branch's direct URL>' npm run db:migrate
+# Prints "Migrations applied to the application database (DATABASE_URL_UNPOOLED)."
+
+# The seed runs through the app's own configuration, so it needs the pooled
+# URL and AUTH_SECRET/CRON_SECRET set (to anything; it uses neither).
+DATABASE_URL='<the branch's pooled URL>' AUTH_SECRET=x CRON_SECRET=x \
+  npm run db:seed -- --minimal     # reference data only — first deploy
 ```
+
+A variable set in the shell beats `.env`, and a `DATABASE_URL` set in the
+shell beats a `DATABASE_URL_UNPOOLED` from `.env`, so a command line always
+names the database it acts on.
 
 Use `--minimal` in production: it seeds roles, permissions and the dairy/bakery
 catalogue, but **not** the demo shops.
@@ -186,27 +281,24 @@ correct for local development but must never reach production — confirm
 Wallet balances are money. Treat the database accordingly.
 
 ```bash
-# Nightly logical backup, 30-day retention. --single-transaction keeps the dump
-# consistent without locking the site out, and routines/triggers/events are not
-# included by default.
-0 2 * * * mysqldump --single-transaction --quick --routines --triggers --events \
-  -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  | gzip > /backups/dairy_$(date +\%F).sql.gz && \
-  find /backups -name 'dairy_*.sql.gz' -mtime +30 -delete
+# Nightly logical backup, 30-day retention. pg_dump takes a consistent snapshot
+# without locking the site out. -Fc is the compressed custom format pg_restore
+# reads. Use a pg_dump whose major version is >= the server's.
+0 2 * * * pg_dump -Fc "$DATABASE_URL_UNPOOLED" > /backups/dairy_$(date +\%F).dump && \
+  find /backups -name 'dairy_*.dump' -mtime +30 -delete
 ```
 
-Restore with:
+Restore into an empty database with:
 
 ```bash
-gunzip -c /backups/dairy_<date>.sql.gz \
-  | mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+pg_restore --no-owner --no-privileges -d "$RESTORE_DATABASE_URL" /backups/dairy_<date>.dump
 ```
 
-On Hostinger, hPanel → Files → Backups also takes database snapshots, and
-phpMyAdmin → Export produces the same kind of dump through the browser if you
-have no shell.
+`pg_dump` goes over the direct URL, not the pooler. Neon also keeps the
+branch's history for point-in-time restore; check the retention your plan
+gives you rather than relying on it blindly.
 
-- Enable point-in-time recovery (binary logging) if the provider offers it.
+- Enable point-in-time recovery (WAL archiving) if the provider offers it.
 - Store backups off-host.
 - **Restore-test quarterly.** An untested backup is a hypothesis, not a backup.
 
@@ -227,6 +319,50 @@ HAVING w.balance_paise <> COALESCE(SUM(t.amount_paise), 0);
 
 Run both as a scheduled integrity check and alert on any output.
 
+## 7a. Moving existing data off MySQL
+
+Until this change the app ran on MySQL (the dev tier's hPanel database,
+`u879099820_main_milk_dev`). That database is not read by this version at all.
+If it holds anything worth keeping, copy it across **before** pointing users at
+the PostgreSQL deployment; if it only ever held test data, start fresh instead.
+
+The table and column names are unchanged; only the types differ (UUIDs were
+`varchar(36)` and become `uuid`, booleans were `tinyint(1)`, enums were inline
+and become named PostgreSQL enum types, JSON becomes `jsonb`). So the approach
+is: create the schema with this repo's migrations, then load **data only**.
+
+1. Put the site in maintenance (or stop it) so nothing writes to MySQL.
+2. Take a MySQL backup first (`mysqldump`, or phpMyAdmin → Export).
+3. Create the empty PostgreSQL database and run `npm run db:migrate` against it.
+4. Copy the rows with [pgloader](https://pgloader.readthedocs.io/) from MySQL
+   into that existing schema, in data-only mode (no table creation, so the
+   migrated types, constraints and defaults are kept). Run it with the MySQL
+   session in UTC — the MySQL timestamps were written in UTC. Check the exact
+   load-file options against the pgloader documentation for your version; a
+   dump-and-convert script works too if pgloader is not available. Skip the
+   three MySQL-only counter tables `shop_registration_seq`, `product_code_seq`
+   and `grievance_ticket_seq`: on PostgreSQL those are real sequences.
+5. Move the sequences past the numbers already issued, so new shops, products
+   and grievances do not reuse a reference:
+
+   ```sql
+   SELECT setval('shop_registration_seq', COALESCE(MAX(substring(registration_number FROM 5)::bigint), 0) + 1, false) FROM shops;
+   SELECT setval('product_code_seq',      COALESCE(MAX(substring(code FROM 2)::bigint), 0) + 1, false) FROM products;
+   SELECT setval('grievance_ticket_seq',  COALESCE(MAX(substring(ticket_number FROM 5)::bigint), 0) + 1, false) FROM grievances;
+   ```
+
+6. Verify: compare row counts table by table, and run both ledger integrity
+   queries from §7 — they must return zero rows.
+
+The PostgreSQL schema also restores four foreign keys that the MySQL schema did
+not have (`shops.registration_fee_id`, `shops.referral_code_id`,
+`shop_payments.reversal_of_id`, `wallet_transactions.voucher_redemption_id`).
+A row that points at something missing will be rejected during the load;
+fix or null it in the source rather than dropping the constraint.
+
+None of this has been rehearsed against the real dev database — do a trial run
+into a scratch PostgreSQL database first.
+
 ## 8. Monitoring
 
 Watch, at minimum:
@@ -237,7 +373,7 @@ Watch, at minimum:
 | `subscription_orders` with `WALLET_INSUFFICIENT` | Customers needing a top-up |
 | 5xx rate on `/api/checkout` and `/api/wallet/*` | Money paths |
 | Wallet-vs-ledger drift (query above) | Financial integrity |
-| Database connection pool saturation | `max: 20` in production |
+| Database connection pool saturation | `DATABASE_POOL_MAX` per app process |
 | Shops stuck in `PENDING_APPROVAL` | Operator SLA |
 
 Application logs go to stdout. The audit log (`audit_logs`) records every
@@ -276,12 +412,14 @@ Rollback checklist:
 ## 10. Pre-launch checklist
 
 - [ ] `AUTH_SECRET` and `CRON_SECRET` are freshly generated, not the dev defaults
-- [ ] The database user is not `root`, and this tier points at its **own** database
+- [ ] The database role is `bk_milk_app` (never a superuser), and this tier's `.env` holds only **its own** Neon branch's URLs
+- [ ] `DATABASE_URL` is the pooled URL and `DATABASE_URL_UNPOOLED` the direct one, both ending `?sslmode=require&channel_binding=require`
 - [ ] Google OAuth redirect URI matches the deployed domain exactly
 - [ ] `CASHFREE_APP_ID` is set with `CASHFREE_ENV=production` — confirm the app is not in mock payment mode
 - [ ] Migrations applied; `npm run db:seed -- --minimal` run once
 - [ ] Daily cron scheduled **and observed to run successfully once**
 - [ ] Signed in with the bootstrap admin, then removed `BOOTSTRAP_ADMIN_EMAILS`
+- [ ] Rate-limit chain checked and `TRUSTED_PROXIES` set if needed (§2, "Trusted proxies"): a made-up `X-Forwarded-For` does not escape the limit, and a second network is not limited by the first
 - [ ] Backups scheduled and one restore tested
 - [ ] Ledger integrity queries scheduled with alerting
 - [ ] HTTPS enforced; HTTP redirects to HTTPS

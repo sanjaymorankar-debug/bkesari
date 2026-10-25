@@ -9,7 +9,7 @@
 > | | this repo (`bkesari`) | [`GoKesari`](https://github.com/sanjaymorankar-debug/GoKesari) |
 > |---|---|---|
 > | Serves | `bkesari.com`, `dev.bkesari.com` (under `/milk`) | `gokesari.com`, `test.gokesari.com` |
-> | Database | MySQL 8 | PostgreSQL 16 |
+> | Database | PostgreSQL 16 (MySQL 8 until the move back, see below) | PostgreSQL 16 |
 > | Commits | 44 | 273 |
 > | Files under `src/` | 219 | 649 |
 > | Commits not in the other | **18** | 239 |
@@ -19,14 +19,16 @@
 > They share a root commit, and until 2026-10-02 this repo was a strict subset of
 > `GoKesari` — every commit here was already there, including *"Rebrand Bkesari to
 > GoKesari"*. PR #8 restored Bkesari branding here, #11 moved the admin list into
-> `PERMANENT_ADMIN_EMAILS`, and #9 ported this app to MySQL, so the two now differ
-> on brand, contact addresses and database engine alike. **The two databases can
-> no longer be shared even in principle:** the migration histories diverged and
-> the engines differ.
+> `PERMANENT_ADMIN_EMAILS`, and #9 ported this app to MySQL. It has since moved
+> back to PostgreSQL as its final database, so both repos run the same engine
+> again — but **the two databases still cannot be shared:** this repo's
+> migration history was reset to a fresh PostgreSQL baseline
+> (`drizzle/0000_postgres_baseline.sql`), so the histories have diverged even
+> where the tables look alike.
 >
 > `GoKesari` remains far ahead on features — 430 more files under `src/`. Porting
 > anything between them means taking the hunk, not the file: a whole-file copy
-> drags the other brand's addresses, or the other engine's SQL, across with it.
+> drags the other brand's addresses, or the other repo's migrations, across with it.
 >
 > Re-check the divergence at any time with:
 >
@@ -48,7 +50,7 @@ rationale and [DEPLOYMENT.md](./DEPLOYMENT.md) for going live.
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS v4 ·
-MySQL 8 · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
+PostgreSQL 16 (node-postgres) · Drizzle ORM · Auth.js (Google OAuth) · Zod · Cashfree ·
 Vitest · Playwright
 
 > Drizzle is used instead of Prisma. The reason is documented in
@@ -57,13 +59,18 @@ Vitest · Playwright
 ## Quick start
 
 ```bash
-# 1. MySQL 8 (8.0.16+ — the schema relies on CHECK constraints)
-#    macOS:  brew install mysql@8.0 && brew services start mysql@8.0
-mysql -uroot -e "CREATE DATABASE dairy_bakery      CHARACTER SET utf8mb4;
-                 CREATE DATABASE dairy_bakery_test CHARACTER SET utf8mb4;"
+# 1. PostgreSQL 16 (14+ works). Any of:
+#    macOS:   brew install postgresql@16 && brew services start postgresql@16
+#    Docker:  docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16
+createdb dairy_bakery
+createdb dairy_bakery_test
+#    (with Docker: docker exec pg createdb -U postgres dairy_bakery, and the same
+#     for dairy_bakery_test)
 
 # 2. Configure
-cp .env.example .env      # then fill in the values (see below)
+cp .env.example .env      # then fill in the values (see below), e.g.
+#    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dairy_bakery
+#    TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
 
 # 3. Schema + reference data
 npm install
@@ -99,7 +106,9 @@ Dairy Farm) so the online/offline rule is visible immediately.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | yes | MySQL connection string, e.g. `mysql://root@localhost:3306/dairy_bakery` |
+| `DATABASE_URL` | yes | PostgreSQL connection string the app runs on, e.g. `postgresql://postgres:postgres@localhost:5432/dairy_bakery`. On Neon, the **pooled** string, ending `?sslmode=require&channel_binding=require`. A non-PostgreSQL URL is rejected at startup. (Alternatively leave it blank and set `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASS`/`DB_SSLMODE`.) |
+| `DATABASE_URL_UNPOOLED` | on Neon | The **direct** (unpooled) string, used by `npm run db:migrate` and drizzle-kit. Unset, they use `DATABASE_URL`. See [DEPLOYMENT.md §1](./DEPLOYMENT.md#1-provision-postgresql-on-neon) |
+| `DATABASE_POOL_MAX` | no | Connection-pool ceiling per process, default `10`. Keep it under your PostgreSQL plan's connection limit |
 | `TEST_DATABASE_URL` | tests | Separate database for integration tests. `tests/setup.ts` points the app's connection at it, so the suite never touches development data |
 | `AUTH_SECRET` | yes | Auth.js session encryption. Generate with `openssl rand -base64 32` |
 | `AUTH_URL` | prod | Canonical app URL, e.g. `https://bkesari.com` (locally `http://localhost:3000`) |
@@ -111,6 +120,7 @@ Dairy Farm) so the online/offline rule is visible immediately.
 | `PERMANENT_ADMIN_EMAILS` | recommended | Comma-separated emails re-promoted to ADMIN on *every* session, not just first sign-in — for the accounts that must never be lockable-out even by an accidental or malicious role change. Meant to stay set (unlike `BOOTSTRAP_ADMIN_EMAILS`). No default — set it yourself; there is no hard-coded fallback (SEC-03) |
 | `SUBSCRIPTION_CUTOFF_HOUR` | no | Delivery cutoff hour, default `20` |
 | `APP_TIMEZONE` | no | IANA zone for delivery dates, default `Asia/Kolkata` |
+| `TRUSTED_PROXIES` | behind a proxy that is not on loopback | Comma-separated IPs or CIDR ranges of the proxies in front of the app; loopback is always trusted. The anonymous rate limits read the visitor's address from `X-Forwarded-For` from the right, past these. Unset there, every visitor shares one bucket per limit (over-limiting, never a bypass). See [DEPLOYMENT.md §2](./DEPLOYMENT.md#trusted-proxies-trusted_proxies) |
 
 An empty value (`FOO=`) is treated as unset.
 
@@ -181,11 +191,16 @@ automatically the next day.
 ## Testing
 
 ```bash
-npm test                                    # 281 unit + integration tests
+npm test                                    # 328 unit + integration tests
 CHROMIUM_PATH=/path/to/chrome npm run test:e2e   # 10 E2E tests, desktop + mobile
 ```
 
-Integration tests run against real MySQL, which is the point: the
+The E2E tests sign in through the development-only login, so they run against
+`npm run dev` with `BASE_PATH` empty (set `E2E_BASE_URL` if it is not on
+port 3000). What "tested" means for a change, and how to run every level
+including the smoke run under `/milk`, is in [TEST_SPEC.md](./TEST_SPEC.md).
+
+Integration tests run against real PostgreSQL, which is the point: the
 concurrency, idempotency and constraint guarantees below cannot be proven
 against a mock.
 
@@ -201,6 +216,9 @@ What the suite actually proves:
 - A price change applies to future days only; past order lines are frozen
 - An insufficient balance takes no money, consumes no stock, marks the day, and can be retried after top-up
 - Offline-only products cannot enter a cart or be ordered
+- Concurrent orders for the last units sell each unit once, charge only the winners, and keep the inventory ledger contiguous
+- Public shop search never hands a visitor a shop's PAN, fee or payment columns
+- The app survives the server terminating its connections, as a Neon compute suspend does: idle ones are replaced, and a transaction caught mid-way fails on its own without taking the process down
 - A shop owner cannot reclassify their own shop even with the route guard bypassed
 
 ## Project layout
