@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:hostinger": "npm install --include=dev --no-audit --no-fund && next build --webpack",
+    "build:hostinger": "npm install --include=dev --no-audit --no-fund && NEXT_BUILD_CPUS=1 next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",

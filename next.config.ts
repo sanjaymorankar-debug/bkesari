@@ -71,10 +71,30 @@ if (basePath && process.env.BASE_URL) {
   }
 }
 
+/**
+ * NEXT_BUILD_CPUS caps the build's worker processes. Hostinger's builder
+ * reports 64 cores, so Next starts ~63 page-data workers, and each one's native
+ * runtime starts a thread per core; the account's thread limit is hit and the
+ * build aborts with "OS can't spawn worker thread". `build:hostinger` sets it
+ * to 1. Unset everywhere else, which keeps Next's default.
+ */
+function readBuildCpus(): number | undefined {
+  const raw = (process.env.NEXT_BUILD_CPUS ?? "").trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`NEXT_BUILD_CPUS must be a positive integer (got ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+
+const buildCpus = readBuildCpus();
+
 const nextConfig: NextConfig = {
   // Both omitted when empty, so the config is identical to before for anyone
   // serving this app from the root of its own hostname.
   ...(basePath ? { basePath } : {}),
+  ...(buildCpus ? { experimental: { cpus: buildCpus } } : {}),
 };
 
 export default nextConfig;
