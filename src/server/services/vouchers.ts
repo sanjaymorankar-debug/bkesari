@@ -14,7 +14,7 @@
  * stored voucher row — a client-supplied bonus figure is never read.
  */
 import ExcelJS from "exceljs";
-import { and, count, desc, eq, gte, like, inArray, lte, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, inArray, lte, or } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -31,7 +31,6 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { MAX_UPLOAD_BYTES, sanitiseCell } from "./excel";
 
-import { insertReturning, updateReturning } from "@/server/db/returning";
 interface Actor {
   id: string;
   role: UserRole;
@@ -236,17 +235,20 @@ export async function redeemVoucher(
       throw validationFailed("This voucher's promotional budget has been used up.");
     }
 
-    const [redemption] = await insertReturning(tx, voucherRedemptions, {
-      voucherId: voucher.id,
-      userId: input.userId,
-      walletId: input.walletId,
-      paymentId: input.paymentId,
-      topupAmountPaise: input.topupAmountPaise,
-      bonusPercent: voucher.bonusPercent,
-      bonusAmountPaise,
-      status: "APPLIED",
-      idempotencyKey,
-    });
+    const [redemption] = await tx
+      .insert(voucherRedemptions)
+      .values({
+        voucherId: voucher.id,
+        userId: input.userId,
+        walletId: input.walletId,
+        paymentId: input.paymentId,
+        topupAmountPaise: input.topupAmountPaise,
+        bonusPercent: voucher.bonusPercent,
+        bonusAmountPaise,
+        status: "APPLIED",
+        idempotencyKey,
+      })
+      .returning();
 
     const newBudgetUsed = voucher.budgetUsedPaise + bonusAmountPaise;
     const newRedemptionCount = voucher.redemptionCount + 1;
@@ -353,23 +355,26 @@ export async function createVoucher(
     if (existing) throw conflict(`Voucher code ${code} already exists.`);
   }
 
-  const [voucher] = await insertReturning(db, vouchers, {
-    name: input.name.trim(),
-    code,
-    description: input.description ?? null,
-    termsAndConditions: input.termsAndConditions ?? null,
-    applyMode: input.applyMode ?? "CODE",
-    bonusPercent: input.bonusPercent,
-    minimumTopupPaise: input.minimumTopupPaise ?? 0,
-    maximumBonusPaise: input.maximumBonusPaise ?? null,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    usageLimit: input.usageLimit ?? null,
-    perCustomerLimit: input.perCustomerLimit ?? 1,
-    totalBudgetPaise: input.totalBudgetPaise ?? null,
-    status: "ACTIVE",
-    createdBy: actor.id,
-  });
+  const [voucher] = await db
+    .insert(vouchers)
+    .values({
+      name: input.name.trim(),
+      code,
+      description: input.description ?? null,
+      termsAndConditions: input.termsAndConditions ?? null,
+      applyMode: input.applyMode ?? "CODE",
+      bonusPercent: input.bonusPercent,
+      minimumTopupPaise: input.minimumTopupPaise ?? 0,
+      maximumBonusPaise: input.maximumBonusPaise ?? null,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      usageLimit: input.usageLimit ?? null,
+      perCustomerLimit: input.perCustomerLimit ?? 1,
+      totalBudgetPaise: input.totalBudgetPaise ?? null,
+      status: "ACTIVE",
+      createdBy: actor.id,
+    })
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -418,22 +423,26 @@ export async function updateVoucher(
     if (existing) throw conflict(`Voucher code ${code} already exists.`);
   }
 
-  const [updated] = await updateReturning(db, vouchers, {
-    name: merged.name.trim(),
-    code,
-    description: merged.description ?? null,
-    termsAndConditions: merged.termsAndConditions ?? null,
-    applyMode: merged.applyMode,
-    bonusPercent: merged.bonusPercent,
-    minimumTopupPaise: merged.minimumTopupPaise ?? 0,
-    maximumBonusPaise: merged.maximumBonusPaise ?? null,
-    startDate: merged.startDate,
-    endDate: merged.endDate,
-    usageLimit: merged.usageLimit ?? null,
-    perCustomerLimit: merged.perCustomerLimit ?? 1,
-    totalBudgetPaise: merged.totalBudgetPaise ?? null,
-    updatedAt: new Date(),
-  }, eq(vouchers.id, id));
+  const [updated] = await db
+    .update(vouchers)
+    .set({
+      name: merged.name.trim(),
+      code,
+      description: merged.description ?? null,
+      termsAndConditions: merged.termsAndConditions ?? null,
+      applyMode: merged.applyMode,
+      bonusPercent: merged.bonusPercent,
+      minimumTopupPaise: merged.minimumTopupPaise ?? 0,
+      maximumBonusPaise: merged.maximumBonusPaise ?? null,
+      startDate: merged.startDate,
+      endDate: merged.endDate,
+      usageLimit: merged.usageLimit ?? null,
+      perCustomerLimit: merged.perCustomerLimit ?? 1,
+      totalBudgetPaise: merged.totalBudgetPaise ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(vouchers.id, id))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -455,7 +464,11 @@ export async function setVoucherStatus(
   const current = await db.query.vouchers.findFirst({ where: eq(vouchers.id, id) });
   if (!current) throw notFound("Voucher");
 
-  const [updated] = await updateReturning(db, vouchers, { status, updatedAt: new Date() }, eq(vouchers.id, id));
+  const [updated] = await db
+    .update(vouchers)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(vouchers.id, id))
+    .returning();
 
   await recordAudit({
     actorId: actor.id,
@@ -480,7 +493,7 @@ export async function listVouchers(options: {
   const conditions = [];
   if (options.search) {
     const term = `%${options.search}%`;
-    conditions.push(or(like(vouchers.name, term), like(vouchers.code, term))!);
+    conditions.push(or(ilike(vouchers.name, term), ilike(vouchers.code, term))!);
   }
   if (options.status) conditions.push(eq(vouchers.status, options.status));
 
@@ -784,15 +797,18 @@ export async function validateVoucherUpload(
     duplicate: rows.filter((r) => r.status === "DUPLICATE_IN_FILE" || r.status === "DUPLICATE_EXISTING").length,
   };
 
-  const [upload] = await insertReturning(db, voucherUploads, {
-    uploadedBy: actor.id,
-    fileName: input.fileName,
-    status: "VALIDATED",
-    totalRecords: counts.total,
-    successfulRecords: counts.valid,
-    failedRecords: counts.total - counts.valid,
-    summary: counts,
-  });
+  const [upload] = await db
+    .insert(voucherUploads)
+    .values({
+      uploadedBy: actor.id,
+      fileName: input.fileName,
+      status: "VALIDATED",
+      totalRecords: counts.total,
+      successfulRecords: counts.valid,
+      failedRecords: counts.total - counts.valid,
+      summary: counts,
+    })
+    .returning();
 
   if (rows.length > 0) {
     await db.insert(voucherUploadItems).values(
@@ -844,18 +860,21 @@ export async function applyVoucherUpload(
     let created = 0;
     for (const item of items) {
       const raw = item.rawData as unknown as VoucherUploadPreviewRow;
-      const [voucher] = await insertReturning(tx, vouchers, {
-        name: raw.name,
-        code: raw.code,
-        applyMode: "CODE",
-        bonusPercent: raw.bonusPercent!,
-        minimumTopupPaise: raw.minimumTopupPaise ?? 0,
-        maximumBonusPaise: raw.maximumBonusPaise,
-        startDate: raw.startDate!,
-        endDate: raw.endDate!,
-        status: "ACTIVE",
-        createdBy: actor.id,
-      });
+      const [voucher] = await tx
+        .insert(vouchers)
+        .values({
+          name: raw.name,
+          code: raw.code,
+          applyMode: "CODE",
+          bonusPercent: raw.bonusPercent!,
+          minimumTopupPaise: raw.minimumTopupPaise ?? 0,
+          maximumBonusPaise: raw.maximumBonusPaise,
+          startDate: raw.startDate!,
+          endDate: raw.endDate!,
+          status: "ACTIVE",
+          createdBy: actor.id,
+        })
+        .returning();
       created += 1;
 
       await tx

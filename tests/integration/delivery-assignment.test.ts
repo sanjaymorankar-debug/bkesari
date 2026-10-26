@@ -36,7 +36,6 @@ import { getFeasibleDeliveryWindows } from "@/server/services/delivery-feasibili
 import { goOnline } from "@/server/services/delivery-partners";
 import { addToCart } from "@/server/services/cart";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
-import { insertReturning, updateReturning } from "@/server/db/returning";
 import {
   createCategory,
   createDeliveryPartner,
@@ -84,15 +83,19 @@ async function setupReadyOrder(options: {
 
   if (options.customerCoords !== null) {
     const coords = options.customerCoords ?? { latitude: SHOP_LAT, longitude: SHOP_LNG };
-    [order] = await updateReturning(db, orders, {
-      deliveryAddressSnapshot: {
-        line1: "1 Test Road",
-        city: "Pune",
-        pincode: "411001",
-        latitude: String(coords.latitude),
-        longitude: String(coords.longitude),
-      },
-    }, eq(orders.id, order.id));
+    [order] = await db
+      .update(orders)
+      .set({
+        deliveryAddressSnapshot: {
+          line1: "1 Test Road",
+          city: "Pune",
+          pincode: "411001",
+          latitude: String(coords.latitude),
+          longitude: String(coords.longitude),
+        },
+      })
+      .where(eq(orders.id, order.id))
+      .returning();
   }
 
   const actor = { id: owner.id, role: "SHOP_OWNER" as const };
@@ -208,14 +211,17 @@ describe("assignNearestPartner", () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id, { latitude: SHOP_LAT, longitude: SHOP_LNG });
     const customer = await createUser({ role: "CUSTOMER" });
-    const [order] = await insertReturning(db, orders, {
-      orderNumber: "TEST-0001",
-      userId: customer.id,
-      shopId: shop.id,
-      status: "CONFIRMED",
-      subtotalPaise: 1000,
-      totalPaise: 1000,
-    });
+    const [order] = await db
+      .insert(orders)
+      .values({
+        orderNumber: "TEST-0001",
+        userId: customer.id,
+        shopId: shop.id,
+        status: "CONFIRMED",
+        subtotalPaise: 1000,
+        totalPaise: 1000,
+      })
+      .returning();
 
     await expect(
       assignNearestPartner(order.id, { id: owner.id, role: "SHOP_OWNER" }),

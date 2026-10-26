@@ -16,10 +16,16 @@ Everything else is prepared: schema, migrations, seed, CI, and the app itself.
 
 ## Step 1 — Create the database (~3 minutes)
 
-Hostinger's Web/Cloud plans, including Node.js Web Apps, **do not support
-PostgreSQL** — MySQL only. PostgreSQL needs a VPS or an external provider. The
-app needs nothing but a connection string, so an external managed Postgres is
-the least-effort path.
+The app's database is **PostgreSQL** (and only PostgreSQL). Hostinger's
+Web/Cloud plans, including Node.js Web Apps, **do not support PostgreSQL** —
+hPanel offers MySQL only, and this app no longer runs on MySQL. PostgreSQL needs
+a VPS or an external provider. The app needs nothing but a connection string, so
+an external managed Postgres is the least-effort path. The steps below use Neon
+as the example; Supabase, AWS RDS or any other PostgreSQL 14+ works the same way
+through its own console.
+
+> Coming from the earlier MySQL version with data you want to keep? See
+> `DEPLOYMENT.md §7a` before going further.
 
 1. Sign up at **https://neon.tech** (free tier is ample for staging).
 2. Create a project — pick the region closest to your users (Singapore or
@@ -117,7 +123,7 @@ npm install
 
 export DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require"
 
-npm run db:migrate              # creates all 28 tables
+npm run db:migrate              # creates all 48 tables
 npm run db:seed -- --minimal    # roles, permissions, dairy + bakery catalogue
 ```
 
@@ -131,7 +137,7 @@ npm run db:seed                 # adds demo shops and products
 Verify:
 
 ```bash
-psql "$DATABASE_URL" -c "SELECT count(*) FROM products;"   # expect 40
+psql "$DATABASE_URL" -c "SELECT count(*) FROM products;"   # expect 373
 ```
 
 ---
