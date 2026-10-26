@@ -77,10 +77,8 @@ npm install
 npm run db:migrate        # applies to DATABASE_URL
 npm run db:seed           # add --minimal for reference data only
 
-# 4. The test database needs the schema too. db:migrate applies to whichever
-#    database your .env points at, so override it once for the test one.
-#    Write the URL out: `$TEST_DATABASE_URL` lives in .env, not your shell.
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dairy_bakery_test npm run db:migrate
+# 4. The test database needs the schema too.
+npm run db:migrate:test   # applies to TEST_DATABASE_URL, read from .env
 
 # 5. Run
 npm run dev               # http://localhost:3000
